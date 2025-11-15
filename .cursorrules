@@ -1,0 +1,166 @@
+# Phaser 3 + TypeScript Game Development Rules
+
+## Technology Stack
+- **Phaser 3** (latest stable version) - main game engine
+- **TypeScript** with strict mode enabled
+- **Matter.js** physics (integrated in Phaser)
+- **Vite** as build tool and dev server
+- **WebRTC** for P2P multiplayer (no backend server)
+
+## Code Style & Architecture
+
+### General Principles
+1. Write strongly-typed TypeScript code
+2. Use ES modules for all imports
+3. Follow SOLID principles
+4. Separate concerns: rendering ≠ game logic ≠ network sync
+5. Prefer composition over inheritance
+6. Use dependency injection where appropriate
+
+### Naming Conventions
+- Classes: PascalCase (e.g., `GameScene`, `TankEntity`)
+- Files: PascalCase for classes (e.g., `GameScene.ts`)
+- Variables/functions: camelCase (e.g., `calculateTrajectory`)
+- Constants: UPPER_SNAKE_CASE (e.g., `MAX_POWER`)
+- Interfaces: prefix with `I` (e.g., `ITankConfig`)
+- Types: PascalCase with `Type` suffix (e.g., `ProjectileType`)
+
+### Project Structure
+```
+src/
+├── scenes/          # Phaser scenes only
+├── entities/        # Game objects (Tank, Projectile, etc.)
+├── systems/         # Game systems (AI, Explosions, etc.)
+├── network/         # WebRTC and multiplayer logic
+├── utils/           # Helper functions
+├── types/           # TypeScript type definitions
+├── config/          # Configuration files
+└── assets/          # Images, sounds, etc.
+```
+
+## Phaser-Specific Rules
+
+### Scene Management
+- Use Phaser's Scene lifecycle: `init()`, `preload()`, `create()`, `update()`
+- Never call `update()` manually - let Phaser handle it
+- Use Scene data manager for storing state: `this.registry.set()`
+- Communicate between scenes using events: `this.events.emit()`
+
+### Coordinate System
+- Remember: Phaser's Y-axis points DOWN (screen space)
+- Angles: use degrees (0° = right, clockwise rotation)
+- Always set proper origins with `setOrigin(x, y)` for rotation pivots
+- Default origin is (0.5, 0.5) - center of sprite
+
+### Physics (Matter.js)
+- Access via `this.matter` in scenes
+- Set physics body origins correctly: `setBody({ ... }, { shape: ... })`
+- Use `setFixedRotation()` for tanks if needed
+- Enable debug rendering during development: `debug: true`
+
+### Game Objects
+- Prefer `Phaser.GameObjects.Container` for composite objects (tank + turret)
+- Use `Phaser.GameObjects.Graphics` for dynamic terrain drawing
+- Set proper depth/z-index with `setDepth()`
+- Clean up objects with `destroy()` when no longer needed
+
+### Particles & Effects
+- Use `this.add.particles()` for particle emitters
+- Configure particles in create(), trigger in update()
+- Set emitter lifespan and frequency appropriately
+- Use particle zones for complex emission shapes
+
+### Sound System
+- Load all sounds in BootScene's `preload()`
+- Access via `this.sound.add('key')`
+- Use sound sprites for multiple sound effects in one file
+- Set global volume in game config
+
+### Animations & Tweens
+- Use `this.tweens.add()` for smooth interpolations
+- Chain tweens with `onComplete` callbacks
+- Use `this.time.delayedCall()` for timed events
+- Avoid `setInterval/setTimeout` - use Phaser's timer events
+
+## TypeScript Rules
+
+### Type Safety
+- Enable `strict: true` in tsconfig.json
+- No `any` types unless absolutely necessary
+- Define interfaces for all data structures
+- Use enums for fixed sets of values
+- Type all function parameters and return values
+
+### Phaser Types
+```typescript
+// Always type scene references
+class MyScene extends Phaser.Scene {
+  private player!: Phaser.GameObjects.Sprite;
+  private matter!: Phaser.Physics.Matter.MatterPhysics;
+}
+
+// Type event callbacks
+this.events.on('eventName', (data: MyDataType) => { ... });
+```
+
+## WebRTC & Multiplayer
+
+### Architecture
+- WebRTC is used ONLY for data channels (no media streams)
+- Use manual signaling via copy/paste UI (no signaling server)
+- STUN server: `stun:stun.l.google.com:19302`
+- Sync only player inputs, not full game state
+- Physics must be deterministic on both clients
+
+### Network Messages
+- Keep messages small (JSON, < 1KB)
+- Use typed message interfaces
+- Include message type/version in every packet
+- Handle disconnections gracefully
+- Implement simple lag compensation if needed
+
+## Performance Best Practices
+- Pool frequently created/destroyed objects
+- Use texture atlases instead of individual images
+- Limit particle count (< 500 active at once)
+- Use `setVisible(false)` instead of destroying/recreating
+- Profile with browser DevTools when optimizing
+
+## Common Pitfalls to Avoid
+- ❌ Don't use browser localStorage/sessionStorage (use Phaser's data manager)
+- ❌ Don't manipulate DOM directly (use Phaser's UI system)
+- ❌ Don't mix radians and degrees (Phaser uses degrees)
+- ❌ Don't forget to remove event listeners in `shutdown()`
+- ❌ Don't use arrow functions for scene methods (loses `this` context)
+- ❌ Don't create new objects in `update()` loop (causes garbage collection)
+
+## Error Handling
+- Wrap WebRTC operations in try-catch blocks
+- Validate all network messages before processing
+- Show user-friendly error messages for network failures
+- Log errors to console with context information
+- Gracefully degrade features if optional dependencies fail
+
+## Testing Considerations
+- Write unit tests for game logic (separate from Phaser)
+- Test bot AI algorithms independently
+- Test WebRTC connection flow manually
+- Profile physics performance with many objects
+- Test on different screen sizes/resolutions
+
+## When Generating Code
+1. Always include TypeScript types
+2. Add JSDoc comments for public methods
+3. Follow the project structure defined above
+4. Use Phaser's built-in features before custom implementations
+5. Write modular, reusable code
+6. Consider performance implications
+7. Handle edge cases and errors
+8. Suggest improvements proactively
+
+## When You're Unsure
+- Ask clarifying questions before implementing
+- Propose multiple solutions with trade-offs
+- Refer to Phaser 3 documentation
+- Consider TypeScript best practices
+- Think about multiplayer synchronization implications
