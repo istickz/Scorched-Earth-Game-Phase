@@ -58,7 +58,6 @@ export class AISystem {
   ): { angle: number; power: number } {
     // Determine direction to target
     const dx = targetX - startX;
-    const dy = targetY - startY;
     const targetIsLeft = dx < 0; // Target is to the left of shooter
     const horizontalDistance = Math.abs(dx);
     
