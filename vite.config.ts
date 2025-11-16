@@ -10,6 +10,12 @@ export default defineConfig({
   server: {
     port: 3000,
     open: true,
+    allowedHosts: [
+      'localhost',
+      '.ngrok-free.app',
+      '.ngrok.io',
+      '.ru.tuna.am', // Tuna tunnel service
+    ],
   },
   build: {
     rollupOptions: {

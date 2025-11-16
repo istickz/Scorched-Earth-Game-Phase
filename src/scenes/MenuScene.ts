@@ -1,0 +1,453 @@
+import Phaser from 'phaser';
+import { GameMode } from '@/types';
+
+interface MenuOption {
+  text: string;
+  callback: () => void;
+}
+
+/**
+ * Main menu scene in Famicom/NES style
+ */
+export class MenuScene extends Phaser.Scene {
+  private menuOptions: MenuOption[] = [];
+  private selectedIndex: number = 0;
+  private menuTexts: Phaser.GameObjects.Text[] = [];
+  private cursorSprite!: Phaser.GameObjects.Sprite;
+  private blinkTimer: Phaser.Time.TimerEvent | null = null;
+  private menuMusic!: Phaser.Sound.BaseSound | null;
+
+  constructor() {
+    super({ key: 'MenuScene' });
+  }
+
+  create(): void {
+    const width = this.cameras.main.width;
+    const height = this.cameras.main.height;
+
+    // Famicom/NES style colors
+    const nesRed = '#e74c3c';
+    const nesYellow = '#f1c40f';
+    const nesWhite = '#ffffff';
+
+    // Create NES-style background
+    this.createNESBackground(width, height);
+
+    // Create pixelated title
+    this.createTitle(width, height, nesRed, nesYellow, nesWhite);
+
+    // Define menu options
+    this.menuOptions = [
+      { text: 'SINGLEPLAYER', callback: () => this.startGame(GameMode.Solo) },
+      { text: 'P2P MULTIPLAYER', callback: () => this.startMultiplayer() },
+      { text: 'QUIT', callback: () => this.quitGame() },
+    ];
+
+    // Create menu with NES style
+    this.createNESMenu(width / 2, height / 2 + 80, nesWhite);
+
+    // Add copyright/attribution notice
+    this.createCopyrightNotice(width, height);
+
+    // Setup keyboard controls
+    this.input.keyboard!.on('keydown-UP', this.moveSelectionUp, this);
+    this.input.keyboard!.on('keydown-DOWN', this.moveSelectionDown, this);
+    this.input.keyboard!.on('keydown-ENTER', this.selectOption, this);
+    this.input.keyboard!.on('keydown-SPACE', this.selectOption, this);
+
+    // Update menu display
+    this.updateMenuDisplay();
+
+    // Create blinking cursor animation
+    this.createCursorAnimation();
+
+    // Play menu music (if loaded)
+    this.playMenuMusic();
+  }
+
+  /**
+   * Play menu music in cracktro/demoscene style
+   */
+  private playMenuMusic(): void {
+    try {
+      // Check if music was loaded in cache
+      if (this.cache.audio.exists('menu-music')) {
+        // If music exists but is stopped, restart it
+        if (this.menuMusic) {
+          if (this.menuMusic.isPlaying) {
+            console.log('Menu music already playing');
+            return;
+          } else {
+            // Music was stopped, restart it
+            this.menuMusic.play();
+            console.log('Menu music restarted');
+            return;
+          }
+        }
+        
+        // Create new music instance
+        this.menuMusic = this.sound.add('menu-music', {
+          volume: 0.5, // Adjust volume (0.0 to 1.0)
+          loop: true,  // Loop the music
+        });
+        
+        // Play music
+        this.menuMusic.play();
+        console.log('Menu music started');
+      } else {
+        console.warn('Menu music not found in cache. Make sure file is in public/assets/sounds/arcade_puzzler.ogg');
+        console.log('Available audio files:', this.cache.audio.getKeys());
+      }
+    } catch (error) {
+      // Music not loaded or error playing
+      console.error('Error playing menu music:', error);
+    }
+  }
+
+  /**
+   * Create copyright/attribution notice
+   */
+  private createCopyrightNotice(width: number, height: number): void {
+    const nesGray = '#95a5a6';
+    const fontSize = '12px';
+    const fontFamily = 'Arial, sans-serif';
+    
+    // Copyright text at the bottom
+    const copyrightText = 'Music: "Arcade Puzzler" by Eric Matyas';
+    const websiteText = 'www.soundimage.org';
+    
+    // Position at bottom with some padding
+    const copyrightY = height - 40;
+    const websiteY = height - 20;
+    
+    // Copyright text
+    this.add.text(width / 2, copyrightY, copyrightText, {
+      fontSize: fontSize,
+      color: nesGray,
+      fontFamily: fontFamily,
+    }).setOrigin(0.5, 0.5);
+    
+    // Website text
+    this.add.text(width / 2, websiteY, websiteText, {
+      fontSize: fontSize,
+      color: nesGray,
+      fontFamily: fontFamily,
+    }).setOrigin(0.5, 0.5);
+  }
+
+  /**
+   * Create NES-style background
+   */
+  private createNESBackground(width: number, height: number): void {
+    // Create gradient-like effect with rectangles
+    const bgGraphics = this.add.graphics();
+    
+    // Dark blue base
+    bgGraphics.fillStyle(0x2c3e50);
+    bgGraphics.fillRect(0, 0, width, height);
+
+    // Add some pattern for NES feel
+    for (let y = 0; y < height; y += 4) {
+      if (y % 8 === 0) {
+        bgGraphics.fillStyle(0x34495e);
+        bgGraphics.fillRect(0, y, width, 2);
+      }
+    }
+  }
+
+  /**
+   * Create pixelated title in NES style
+   */
+  private createTitle(width: number, height: number, red: string, yellow: string, white: string): void {
+    const titleY = height / 6;
+    
+    // Main title with shadow effect (NES style)
+    const titleShadow = this.add.text(width / 2 + 4, titleY + 4, 'ARTILLERY BATTLE', {
+      fontSize: '48px',
+      color: '#000000',
+      fontFamily: 'Arial Black, sans-serif',
+      fontStyle: 'bold',
+    }).setOrigin(0.5);
+
+    const title = this.add.text(width / 2, titleY, 'ARTILLERY BATTLE', {
+      fontSize: '48px',
+      color: red,
+      fontFamily: 'Arial Black, sans-serif',
+      fontStyle: 'bold',
+      stroke: '#000000',
+      strokeThickness: 2,
+    }).setOrigin(0.5);
+
+    // Subtitle with NES colors
+    const subtitle = this.add.text(width / 2, titleY + 60, 'A Scorched Earth Clone', {
+      fontSize: '20px',
+      color: yellow,
+      fontFamily: 'Arial, sans-serif',
+      fontStyle: 'bold',
+      stroke: '#000000',
+      strokeThickness: 1,
+    }).setOrigin(0.5);
+
+    // Version badge
+    const versionBg = this.add.graphics();
+    versionBg.fillStyle(0x34495e);
+    versionBg.fillRoundedRect(width / 2 - 50, titleY + 90, 100, 25, 5);
+    
+    const version = this.add.text(width / 2, titleY + 102, 'v1.0', {
+      fontSize: '14px',
+      color: white,
+      fontFamily: 'Arial, sans-serif',
+      fontStyle: 'bold',
+    }).setOrigin(0.5);
+
+    this.add.container(0, 0, [titleShadow, title, subtitle, versionBg, version]);
+  }
+
+  /**
+   * Create NES-style menu
+   */
+  private createNESMenu(x: number, y: number, white: string): void {
+    // Increased width to accommodate longer text like "P2P MULTIPLAYER"
+    const boxWidth = 450;
+    const boxHeight = this.menuOptions.length * 50 + 40;
+    const padding = 20; // Padding from edges
+
+    // Create menu box with NES-style border
+    const boxContainer = this.add.container(x, y);
+
+    // Background box
+    const bgGraphics = this.add.graphics();
+    bgGraphics.fillStyle(0x34495e, 0.8);
+    bgGraphics.fillRoundedRect(-boxWidth / 2, -boxHeight / 2, boxWidth, boxHeight, 8);
+    bgGraphics.lineStyle(3, 0x3498db);
+    bgGraphics.strokeRoundedRect(-boxWidth / 2, -boxHeight / 2, boxWidth, boxHeight, 8);
+    
+    // Inner border
+    bgGraphics.lineStyle(1, 0x5dade2);
+    bgGraphics.strokeRoundedRect(-boxWidth / 2 + 4, -boxHeight / 2 + 4, boxWidth - 8, boxHeight - 8, 6);
+
+    boxContainer.add(bgGraphics);
+
+    // Create cursor sprite (will be positioned in updateMenuDisplay)
+    this.createCursorSprite(0, 0);
+
+    // Create menu option texts (left-aligned)
+    const textOffsetX = -boxWidth / 2 + padding + 60; // Position after cursor (20px cursor + 40px spacing)
+    
+    this.menuOptions.forEach((option, index) => {
+      const optionY = -boxHeight / 2 + 50 + index * 50;
+      
+      // Text shadow for depth (left-aligned)
+      const textShadow = this.add.text(textOffsetX, optionY + 2, option.text, {
+        fontSize: '24px',
+        color: '#000000',
+        fontFamily: 'Arial Black, sans-serif',
+        fontStyle: 'bold',
+      }).setOrigin(0, 0.5);
+
+      const menuText = this.add.text(textOffsetX, optionY, option.text, {
+        fontSize: '24px',
+        color: white,
+        fontFamily: 'Arial Black, sans-serif',
+        fontStyle: 'bold',
+        stroke: '#000000',
+        strokeThickness: 2,
+      }).setOrigin(0, 0.5);
+
+      boxContainer.add([textShadow, menuText]);
+      this.menuTexts.push(menuText);
+    });
+  }
+
+  /**
+   * Create cursor sprite (arrow pointing right)
+   */
+  private createCursorSprite(x: number, y: number): void {
+    // Create a simple arrow using graphics
+    const cursorGraphics = this.add.graphics();
+    cursorGraphics.fillStyle(0xf1c40f); // Yellow
+    cursorGraphics.lineStyle(2, 0x000000);
+    
+    // Draw arrow pointing right (triangle) - centered vertically
+    // Arrow is 20px wide and 16px tall, centered at (0, 0)
+    cursorGraphics.beginPath();
+    cursorGraphics.moveTo(0, -8);  // Top point
+    cursorGraphics.lineTo(20, 0);   // Right point (tip)
+    cursorGraphics.lineTo(0, 8);     // Bottom point
+    cursorGraphics.closePath();
+    cursorGraphics.fillPath();
+    cursorGraphics.strokePath();
+
+    this.cursorSprite = this.add.sprite(x, y, '__WHITE');
+    this.cursorSprite.setVisible(false); // We'll use graphics instead
+    
+    // Store graphics for cursor
+    (this as any).cursorGraphics = cursorGraphics;
+    cursorGraphics.setPosition(x, y);
+  }
+
+  /**
+   * Update menu display with current selection
+   */
+  private updateMenuDisplay(): void {
+    const nesWhite = '#ffffff';
+    const nesYellow = '#f1c40f';
+    const nesRed = '#e74c3c';
+
+    const boxWidth = 450;
+    const boxHeight = this.menuOptions.length * 50 + 40;
+    const padding = 20;
+    const menuX = this.cameras.main.width / 2;
+    const menuY = this.cameras.main.height / 2 + 80;
+    const cursorX = menuX - boxWidth / 2 + padding;
+    const baseCursorY = menuY - boxHeight / 2 + 50;
+
+    // Update cursor position
+    if ((this as any).cursorGraphics) {
+      (this as any).cursorGraphics.setPosition(cursorX, baseCursorY + this.selectedIndex * 50);
+    }
+
+    // Update text colors
+    this.menuTexts.forEach((text, index) => {
+      if (index === this.selectedIndex) {
+        // Selected option: yellow with red outline
+        text.setColor(nesYellow);
+        text.setStyle({ 
+          fontStyle: 'bold',
+          stroke: nesRed,
+          strokeThickness: 3,
+        });
+      } else {
+        // Unselected option: white
+        text.setColor(nesWhite);
+        text.setStyle({ 
+          fontStyle: 'bold',
+          stroke: '#000000',
+          strokeThickness: 2,
+        });
+      }
+    });
+  }
+
+  /**
+   * Create blinking cursor animation
+   */
+  private createCursorAnimation(): void {
+    if ((this as any).cursorGraphics) {
+      this.blinkTimer = this.time.addEvent({
+        delay: 500,
+        callback: () => {
+          if ((this as any).cursorGraphics) {
+            (this as any).cursorGraphics.setAlpha((this as any).cursorGraphics.alpha === 1 ? 0.3 : 1);
+          }
+        },
+        loop: true,
+      });
+    }
+  }
+
+  /**
+   * Move selection up
+   */
+  private moveSelectionUp(): void {
+    this.selectedIndex = (this.selectedIndex - 1 + this.menuOptions.length) % this.menuOptions.length;
+    this.updateMenuDisplay();
+    // Play sound effect if available
+    try {
+      this.sound.play('menu-move', { volume: 0.3 });
+    } catch {
+      // Sound not available, ignore
+    }
+  }
+
+  /**
+   * Move selection down
+   */
+  private moveSelectionDown(): void {
+    this.selectedIndex = (this.selectedIndex + 1) % this.menuOptions.length;
+    this.updateMenuDisplay();
+    // Play sound effect if available
+    try {
+      this.sound.play('menu-move', { volume: 0.3 });
+    } catch {
+      // Sound not available, ignore
+    }
+  }
+
+  /**
+   * Select current option
+   */
+  private selectOption(): void {
+    if (this.menuOptions[this.selectedIndex]) {
+      // Play sound effect if available
+      try {
+        this.sound.play('menu-select', { volume: 0.5 });
+      } catch {
+        // Sound not available, ignore
+      }
+      this.menuOptions[this.selectedIndex].callback();
+    }
+  }
+
+  /**
+   * Start the game with the selected mode
+   */
+  private startGame(mode: GameMode): void {
+    // Stop menu music before starting game
+    this.stopMenuMusic();
+    
+    // Pass game mode to GameScene
+    this.scene.start('GameScene', {
+      gameMode: mode,
+    });
+  }
+
+  /**
+   * Start multiplayer lobby
+   */
+  private startMultiplayer(): void {
+    // Stop menu music before going to multiplayer
+    this.stopMenuMusic();
+    
+    this.scene.start('MultiplayerLobbyScene');
+  }
+
+  /**
+   * Stop menu music
+   */
+  private stopMenuMusic(): void {
+    if (this.menuMusic) {
+      if (this.menuMusic.isPlaying) {
+        this.menuMusic.stop();
+      }
+      // Don't destroy the sound object, just stop it
+      // It will be reused when returning to menu
+    }
+  }
+
+  /**
+   * Quit game (close window/tab)
+   */
+  private quitGame(): void {
+    // In browser, we can't really "quit", but we can show a message
+    if (confirm('Are you sure you want to quit?')) {
+      window.close();
+    }
+  }
+
+  shutdown(): void {
+    // Clean up keyboard listeners
+    this.input.keyboard?.off('keydown-UP', this.moveSelectionUp, this);
+    this.input.keyboard?.off('keydown-DOWN', this.moveSelectionDown, this);
+    this.input.keyboard?.off('keydown-ENTER', this.selectOption, this);
+    this.input.keyboard?.off('keydown-SPACE', this.selectOption, this);
+    
+    // Clean up timer
+    if (this.blinkTimer) {
+      this.blinkTimer.destroy();
+    }
+
+    // Stop menu music when leaving menu
+    this.stopMenuMusic();
+  }
+}
