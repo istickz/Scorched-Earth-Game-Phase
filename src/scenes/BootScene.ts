@@ -5,6 +5,7 @@ import Phaser from 'phaser';
  */
 export class BootScene extends Phaser.Scene {
   private loadingText!: Phaser.GameObjects.Text;
+  private loadingShadow!: Phaser.GameObjects.Text;
   private progressBar!: Phaser.GameObjects.Graphics;
   private progressBarBg!: Phaser.GameObjects.Graphics;
 
@@ -13,18 +14,21 @@ export class BootScene extends Phaser.Scene {
   }
 
   preload(): void {
+    // Load bitmap font FIRST - it's used by all scenes
+    this.load.bitmapFont('pixel-font', 'assets/fonts/PublicPixel-rv0pA.png', 'assets/fonts/PublicPixel-rv0pA.xml');
+
     // Create loading UI in Famicom/NES style
     const width = this.cameras.main.width;
     const height = this.cameras.main.height;
-    const nesYellow = '#f1c40f';
 
     // NES-style background
     const bgGraphics = this.add.graphics();
     bgGraphics.fillStyle(0x2c3e50);
     bgGraphics.fillRect(0, 0, width, height);
 
-    // NES-style loading text with shadow
-    this.add.text(width / 2 + 2, height / 2 - 50 + 2, 'LOADING...', {
+    // NES-style loading text (using regular text for loading screen - font not loaded yet)
+    // Bitmap font will be used in all other scenes after it's loaded
+    this.loadingShadow = this.add.text(width / 2 + 2, height / 2 - 50 + 2, 'LOADING...', {
       fontSize: '32px',
       color: '#000000',
       fontFamily: 'Arial Black, sans-serif',
@@ -33,7 +37,7 @@ export class BootScene extends Phaser.Scene {
 
     this.loadingText = this.add.text(width / 2, height / 2 - 50, 'LOADING...', {
       fontSize: '32px',
-      color: nesYellow,
+      color: '#f1c40f',
       fontFamily: 'Arial Black, sans-serif',
       fontStyle: 'bold',
       stroke: '#000000',
@@ -66,12 +70,15 @@ export class BootScene extends Phaser.Scene {
       // Update percentage text
       const percent = Math.floor(value * 100);
       this.loadingText.setText(`LOADING... ${percent}%`);
+      this.loadingShadow.setText(`LOADING... ${percent}%`);
     });
 
     // Update loading text on file load
     this.load.on('fileprogress', (file: Phaser.Loader.File) => {
       const percent = Math.floor(this.load.progress * 100);
-      this.loadingText.setText(`LOADING: ${file.key.toUpperCase()}... ${percent}%`);
+      const text = `LOADING: ${file.key.toUpperCase()}... ${percent}%`;
+      this.loadingText.setText(text);
+      this.loadingShadow.setText(text);
     });
 
     // Load placeholder assets
@@ -103,6 +110,7 @@ export class BootScene extends Phaser.Scene {
     this.progressBar.destroy();
     this.progressBarBg.destroy();
     this.loadingText.destroy();
+    this.loadingShadow.destroy();
 
     // Transition to menu scene
     this.scene.start('MenuScene');

@@ -2,6 +2,11 @@ import Phaser from 'phaser';
 import { type ITankConfig } from '@/types';
 
 /**
+ * Matter.js body type (not exported by Phaser types)
+ */
+type MatterBody = unknown;
+
+/**
  * Tank entity with body, turret, and health system
  */
 export class Tank extends Phaser.GameObjects.Container {
@@ -66,11 +71,33 @@ export class Tank extends Phaser.GameObjects.Container {
     });
 
     // Set physics properties through body
-    const body = (this as any).body;
+    interface ContainerWithBody {
+      body?: MatterBody & { isStatic?: boolean; mass?: number; inertia?: number; frictionAir?: number; friction?: number };
+    }
+    interface MatterBodyAPI {
+      Body: {
+        setStatic: (body: MatterBody, isStatic: boolean) => void;
+        setMass: (body: MatterBody, mass: number) => void;
+        setInertia: (body: MatterBody, inertia: number) => void;
+        setVelocity: (body: MatterBody, x: number, y: number) => void;
+      };
+    }
+    interface MatterWorldWithEngine {
+      engine?: {
+        Matter?: MatterBodyAPI;
+      };
+    }
+    interface WindowWithMatter {
+      Matter?: MatterBodyAPI;
+    }
+    const containerWithBody = this as Phaser.GameObjects.Container & ContainerWithBody;
+    const body = containerWithBody.body;
     if (body && this.scene.matter) {
       // Start as static (standing on ground)
       // Access Matter.js API through Phaser
-      const Matter = (this.scene.matter.world as any).engine?.Matter || (window as any).Matter;
+      const matterWorld = this.scene.matter.world as Phaser.Physics.Matter.World & MatterWorldWithEngine;
+      const windowWithMatter = window as Window & WindowWithMatter;
+      const Matter = matterWorld.engine?.Matter || windowWithMatter.Matter;
       if (Matter && Matter.Body) {
         Matter.Body.setStatic(body, true); // Static by default
         Matter.Body.setMass(body, 10); // Heavier than projectiles
@@ -120,124 +147,172 @@ export class Tank extends Phaser.GameObjects.Container {
   }
 
   /**
-   * Draw tank body as trapezoid (wider at bottom, narrower at top)
+   * Draw tank body in pixel art style (trapezoid shape)
    */
   private drawTankBody(): void {
     this.bodyGraphics.clear();
     
-    const topWidth = this.bodyWidth * 0.7; // Narrower at top
-    const bottomWidth = this.bodyWidth;
-    const halfTop = topWidth / 2;
-    const halfBottom = bottomWidth / 2;
-    const halfHeight = this.bodyHeight / 2;
-
-    // Main body (trapezoid)
-    this.bodyGraphics.fillStyle(this.config.color);
-    this.bodyGraphics.beginPath();
-    this.bodyGraphics.moveTo(-halfTop, -halfHeight);
-    this.bodyGraphics.lineTo(halfTop, -halfHeight);
-    this.bodyGraphics.lineTo(halfBottom, halfHeight);
-    this.bodyGraphics.lineTo(-halfBottom, halfHeight);
-    this.bodyGraphics.closePath();
-    this.bodyGraphics.fillPath();
-
-    // Add darker outline for depth
-    this.bodyGraphics.lineStyle(2, this.darkenColor(this.config.color, 0.3));
-    this.bodyGraphics.strokePath();
-
-    // Add highlight on top
-    const highlightColor = this.lightenColor(this.config.color, 0.2);
-    this.bodyGraphics.fillStyle(highlightColor);
-    this.bodyGraphics.fillRect(-halfTop * 0.8, -halfHeight, topWidth * 0.6, 3);
-  }
-
-  /**
-   * Draw tracks/wheels at bottom of tank
-   */
-  private drawTracks(): void {
-    this.tracksGraphics.clear();
+    // Pixel art: use integer coordinates and pixel-by-pixel drawing
+    const topWidth = Math.floor(this.bodyWidth * 0.7); // Narrower at top
+    const bottomWidth = Math.floor(this.bodyWidth);
+    const halfTop = Math.floor(topWidth / 2);
+    const halfBottom = Math.floor(bottomWidth / 2);
+    const halfHeight = Math.floor(this.bodyHeight / 2);
     
-    const halfHeight = this.bodyHeight / 2;
-    const trackY = halfHeight - 2; // Just above bottom edge
-    const trackHeight = 4;
-    const wheelRadius = 3;
-    const wheelSpacing = 8;
+    const darkColor = this.darkenColor(this.config.color, 0.3);
+    const lightColor = this.lightenColor(this.config.color, 0.2);
 
-    // Draw tracks (rectangles)
-    this.tracksGraphics.fillStyle(0x333333); // Dark gray
-    const trackWidth = this.bodyWidth * 0.9;
-    this.tracksGraphics.fillRect(-trackWidth / 2, trackY, trackWidth, trackHeight);
-
-    // Draw wheels (small circles)
-    this.tracksGraphics.fillStyle(0x222222); // Darker gray
-    const numWheels = 3;
-    const startX = -trackWidth / 2 + wheelSpacing;
-    for (let i = 0; i < numWheels; i++) {
-      const wheelX = startX + i * wheelSpacing;
-      this.tracksGraphics.fillCircle(wheelX, trackY + trackHeight / 2, wheelRadius);
+    // Draw pixel-by-pixel trapezoid
+    for (let y = -halfHeight; y <= halfHeight; y++) {
+      const progress = (y + halfHeight) / (halfHeight * 2); // 0 to 1 from top to bottom
+      const currentWidth = Math.floor(topWidth + (bottomWidth - topWidth) * progress);
+      const halfCurrentWidth = Math.floor(currentWidth / 2);
+      
+      for (let x = -halfCurrentWidth; x <= halfCurrentWidth; x++) {
+        const pixelX = Math.floor(x);
+        const pixelY = Math.floor(y);
+        
+        // Determine pixel color based on position
+        let pixelColor = this.config.color;
+        
+        // Dark outline
+        if (x === -halfCurrentWidth || x === halfCurrentWidth || 
+            (y === -halfHeight && Math.abs(x) <= halfTop) ||
+            (y === halfHeight && Math.abs(x) <= halfBottom)) {
+          pixelColor = darkColor;
+        }
+        // Light highlight on top
+        else if (y === -halfHeight + 1 && Math.abs(x) <= Math.floor(halfTop * 0.8)) {
+          pixelColor = lightColor;
+        }
+        
+        this.bodyGraphics.fillStyle(pixelColor);
+        this.bodyGraphics.fillRect(pixelX, pixelY, 1, 1);
+      }
     }
   }
 
   /**
-   * Draw elliptical turret base
+   * Draw tracks/wheels in pixel art style
+   */
+  private drawTracks(): void {
+    this.tracksGraphics.clear();
+    
+    const halfHeight = Math.floor(this.bodyHeight / 2);
+    const trackY = halfHeight - 2; // Just above bottom edge
+    const trackHeight = 4;
+    const wheelSpacing = 8;
+    const trackWidth = Math.floor(this.bodyWidth * 0.9);
+    const halfTrackWidth = Math.floor(trackWidth / 2);
+
+    // Draw tracks (pixel rectangles)
+    this.tracksGraphics.fillStyle(0x333333); // Dark gray
+    for (let x = -halfTrackWidth; x < halfTrackWidth; x++) {
+      for (let y = 0; y < trackHeight; y++) {
+        this.tracksGraphics.fillRect(Math.floor(x), trackY + y, 1, 1);
+      }
+    }
+
+    // Draw wheels (pixel circles - 3x3 pixels)
+    this.tracksGraphics.fillStyle(0x222222); // Darker gray
+    const numWheels = 3;
+    const startX = -halfTrackWidth + wheelSpacing;
+    for (let i = 0; i < numWheels; i++) {
+      const wheelX = Math.floor(startX + i * wheelSpacing);
+      const wheelY = trackY + Math.floor(trackHeight / 2);
+      
+      // Draw 3x3 pixel wheel
+      for (let dx = -1; dx <= 1; dx++) {
+        for (let dy = -1; dy <= 1; dy++) {
+          if (dx * dx + dy * dy <= 1) { // Circle check
+            this.tracksGraphics.fillRect(wheelX + dx, wheelY + dy, 1, 1);
+          }
+        }
+      }
+    }
+  }
+
+  /**
+   * Draw turret base in pixel art style (rounded rectangle)
    */
   private drawTurretBase(): void {
     this.turretBaseGraphics.clear();
     
-    const turretY = -this.bodyHeight / 2; // Top of tank body
-    const turretWidth = this.turretRadius * 2.6; // Ellipse width (more oval, wider)
-    const turretHeight = this.turretRadius * 1.6; // Ellipse height (more oval, shorter)
+    const turretY = Math.floor(-this.bodyHeight / 2); // Top of tank body
+    const turretWidth = Math.floor(this.turretRadius * 2.6); // Ellipse width (more oval, wider)
+    const turretHeight = Math.floor(this.turretRadius * 1.6); // Ellipse height (more oval, shorter)
+    const halfWidth = Math.floor(turretWidth / 2);
+    const halfHeight = Math.floor(turretHeight / 2);
+    
+    const darkColor = this.darkenColor(this.config.color, 0.3);
+    const lightColor = this.lightenColor(this.config.color, 0.2);
 
-    // Turret base (ellipse)
-    this.turretBaseGraphics.fillStyle(this.config.color);
-    this.turretBaseGraphics.fillEllipse(0, turretY, turretWidth, turretHeight);
-
-    // Turret outline
-    this.turretBaseGraphics.lineStyle(2, this.darkenColor(this.config.color, 0.3));
-    this.turretBaseGraphics.strokeEllipse(0, turretY, turretWidth, turretHeight);
-
-    // Turret highlight
-    const highlightColor = this.lightenColor(this.config.color, 0.2);
-    this.turretBaseGraphics.fillStyle(highlightColor);
-    this.turretBaseGraphics.fillEllipse(-2, turretY - 2, 7, 3);
+    // Draw pixel-by-pixel rounded rectangle (ellipse approximation)
+    for (let y = -halfHeight; y <= halfHeight; y++) {
+      for (let x = -halfWidth; x <= halfWidth; x++) {
+        const pixelX = Math.floor(x);
+        const pixelY = Math.floor(turretY + y);
+        
+        // Check if pixel is inside ellipse: (x/a)^2 + (y/b)^2 <= 1
+        const ellipseCheck = (x * x) / (halfWidth * halfWidth) + (y * y) / (halfHeight * halfHeight);
+        
+        if (ellipseCheck <= 1.0) {
+          let pixelColor = this.config.color;
+          
+          // Dark outline
+          if (ellipseCheck > 0.85) {
+            pixelColor = darkColor;
+          }
+          // Light highlight on top-left
+          else if (x < 0 && y < -halfHeight + 2 && ellipseCheck < 0.5) {
+            pixelColor = lightColor;
+          }
+          
+          this.turretBaseGraphics.fillStyle(pixelColor);
+          this.turretBaseGraphics.fillRect(pixelX, pixelY, 1, 1);
+        }
+      }
+    }
   }
 
   /**
-   * Draw barrel (gun barrel that rotates)
+   * Draw barrel in pixel art style (gun barrel that rotates)
    */
   private drawBarrel(): void {
     this.barrelGraphics.clear();
     
     // Barrel is drawn relative to container center (which is at turret center)
     // Draw barrel extending upward from center (negative Y in container coordinates)
-    const barrelTopY = -this.barrelLength; // Barrel extends upward
+    const barrelTopY = Math.floor(-this.barrelLength); // Barrel extends upward
+    const barrelWidth = Math.floor(this.barrelWidth);
+    const halfWidth = Math.floor(barrelWidth / 2);
 
-    // Barrel (rectangle)
+    // Barrel (pixel rectangle)
     this.barrelGraphics.fillStyle(0x444444); // Dark gray barrel
-    this.barrelGraphics.fillRect(
-      -this.barrelWidth / 2,
-      barrelTopY,
-      this.barrelWidth,
-      this.barrelLength
-    );
+    for (let y = barrelTopY; y < 0; y++) {
+      for (let x = -halfWidth; x < halfWidth; x++) {
+        const pixelX = Math.floor(x);
+        const pixelY = Math.floor(y);
+        
+        let pixelColor = 0x444444;
+        
+        // Dark outline
+        if (x === -halfWidth || x === halfWidth - 1 || y === barrelTopY || y === -1) {
+          pixelColor = 0x222222;
+        }
+        
+        this.barrelGraphics.fillStyle(pixelColor);
+        this.barrelGraphics.fillRect(pixelX, pixelY, 1, 1);
+      }
+    }
 
-    // Barrel outline
-    this.barrelGraphics.lineStyle(1, 0x222222);
-    this.barrelGraphics.strokeRect(
-      -this.barrelWidth / 2,
-      barrelTopY,
-      this.barrelWidth,
-      this.barrelLength
-    );
-
-    // Barrel tip (muzzle)
+    // Barrel tip (muzzle) - darker pixels
     this.barrelGraphics.fillStyle(0x222222);
-    this.barrelGraphics.fillRect(
-      -this.barrelWidth / 2 - 1,
-      barrelTopY - 2,
-      this.barrelWidth + 2,
-      2
-    );
+    for (let y = barrelTopY - 2; y < barrelTopY; y++) {
+      for (let x = -halfWidth - 1; x <= halfWidth; x++) {
+        this.barrelGraphics.fillRect(Math.floor(x), Math.floor(y), 1, 1);
+      }
+    }
   }
 
   /**
@@ -426,7 +501,11 @@ export class Tank extends Phaser.GameObjects.Container {
    * Check if there's ground under the tank and update physics state
    */
   public checkGroundSupport(terrainSystem: { isSolid: (x: number, y: number) => boolean }): void {
-    const body = (this as any).body;
+    interface ContainerWithBody {
+      body?: MatterBody & { isStatic?: boolean; velocity?: { x: number; y: number } };
+    }
+    const containerWithBody = this as Phaser.GameObjects.Container & ContainerWithBody;
+    const body = containerWithBody.body;
     if (!body) {
       return;
     }
@@ -448,7 +527,23 @@ export class Tank extends Phaser.GameObjects.Container {
                           terrainSystem.isSolid(checkX + this.bodyWidth / 3, checkYBelow);
 
     // Update static/dynamic state
-    const Matter = (this.scene.matter?.world as any)?.engine?.Matter || (window as any).Matter;
+    interface MatterBodyAPI {
+      Body: {
+        setStatic: (body: MatterBody, isStatic: boolean) => void;
+        setVelocity: (body: MatterBody, x: number, y: number) => void;
+      };
+    }
+    interface MatterWorldWithEngine {
+      engine?: {
+        Matter?: MatterBodyAPI;
+      };
+    }
+    interface WindowWithMatter {
+      Matter?: MatterBodyAPI;
+    }
+    const matterWorld = this.scene.matter?.world as (Phaser.Physics.Matter.World & MatterWorldWithEngine) | undefined;
+    const windowWithMatter = window as Window & WindowWithMatter;
+    const Matter = matterWorld?.engine?.Matter || windowWithMatter.Matter;
     if (Matter && Matter.Body) {
       if (hasAnyGround && !this.isStatic) {
         // Ground appeared under tank - make static and stop falling

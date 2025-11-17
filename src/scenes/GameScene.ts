@@ -21,7 +21,10 @@ export class GameScene extends Phaser.Scene {
   private activeProjectiles: Projectile[] = [];
   private explosionSystem!: ExplosionSystem;
   private currentPlayerIndex: number = 0;
-  private uiText!: Phaser.GameObjects.Text;
+  private uiText!: Phaser.GameObjects.BitmapText;
+  private uiTextShadow!: Phaser.GameObjects.BitmapText;
+  private controlsText!: Phaser.GameObjects.BitmapText;
+  private controlsTextShadow!: Phaser.GameObjects.BitmapText;
   private trajectoryPreview!: Phaser.GameObjects.Graphics;
   private canFire: boolean = true;
   private waitingForProjectile: boolean = false;
@@ -33,7 +36,6 @@ export class GameScene extends Phaser.Scene {
   private webrtcManager?: WebRTCManager;
   private networkSync?: NetworkSync;
   private audioSystem!: AudioSystem;
-  private _weatherSystem?: WeatherSystem; // Weather effects system
   // Trajectory tracking system
   private activeTrajectories: Map<Projectile, { x: number; y: number }[]> = new Map();
   private completedTrajectories: { x: number; y: number }[][] = [];
@@ -45,6 +47,7 @@ export class GameScene extends Phaser.Scene {
   }
 
   private aiDifficulty: AIDifficulty = 'medium';
+  private levelConfig?: ILevelConfig;
 
   init(data: { 
     gameMode?: GameMode; 
@@ -57,7 +60,7 @@ export class GameScene extends Phaser.Scene {
     this.aiDifficulty = data?.aiDifficulty || 'medium';
     
     // Сохраняем конфигурацию уровня для использования в create()
-    (this as any).levelConfig = data?.levelConfig;
+    this.levelConfig = data?.levelConfig;
     
     // Сбрасываем все игровые состояния при инициализации/перезапуске
     this.gameOver = false;
@@ -86,7 +89,7 @@ export class GameScene extends Phaser.Scene {
     }
 
     // Use provided config or create random one
-    const levelConfig: ILevelConfig = (this as any).levelConfig || this.createRandomLevelConfig();
+    const levelConfig: ILevelConfig = this.levelConfig || this.createRandomLevelConfig();
     
     // Use seed from config if provided, otherwise generate random
     const terrainSeed = levelConfig.seed !== undefined ? levelConfig.seed : Math.random() * 1000000;
@@ -116,11 +119,10 @@ export class GameScene extends Phaser.Scene {
 
     this.audioSystem = new AudioSystem();
     this.audioSystem.resume();
-    (this as any).audioSystem = this.audioSystem;
 
-    // Create weather effects
+    // Create weather effects (system manages itself, no need to store reference)
     if (levelConfig.weather !== 'none') {
-      this._weatherSystem = new WeatherSystem(this, levelConfig.weather, levelConfig.timeOfDay);
+      new WeatherSystem(this, levelConfig.weather, levelConfig.timeOfDay);
     }
 
     if (this.gameMode === GameMode.Solo) {
@@ -182,19 +184,24 @@ export class GameScene extends Phaser.Scene {
   }
 
   private setupUI(): void {
-    this.uiText = this.add.text(20, 20, '', {
-      fontSize: '18px',
-      color: '#ffffff',
-      backgroundColor: '#000000',
-      padding: { x: 10, y: 5 },
-    });
+    // UI text with shadow (bitmap font)
+    this.uiTextShadow = this.add.bitmapText(21, 21, 'pixel-font', '', 18);
+    this.uiTextShadow.setTintFill(0x000000);
+    this.uiTextShadow.setOrigin(0, 0);
+    
+    this.uiText = this.add.bitmapText(20, 20, 'pixel-font', '', 18);
+    this.uiText.setTintFill(0xffffff);
+    this.uiText.setOrigin(0, 0);
 
-    this.add.text(20, 60, 'Controls: ← → (Angle) | ↑ ↓ (Power) | SPACE (Fire)', {
-      fontSize: '14px',
-      color: '#aaaaaa',
-      backgroundColor: '#000000',
-      padding: { x: 10, y: 5 },
-    });
+    // Controls text with shadow (bitmap font)
+    const controlsTextStr = 'Controls: ← → (Angle) | ↑ ↓ (Power) | SPACE (Fire)';
+    this.controlsTextShadow = this.add.bitmapText(21, 61, 'pixel-font', controlsTextStr, 14);
+    this.controlsTextShadow.setTintFill(0x000000);
+    this.controlsTextShadow.setOrigin(0, 0);
+    
+    this.controlsText = this.add.bitmapText(20, 60, 'pixel-font', controlsTextStr, 14);
+    this.controlsText.setTintFill(0xaaaaaa);
+    this.controlsText.setOrigin(0, 0);
 
     // Создаем графику для предпросмотра траектории
     this.trajectoryPreview = this.add.graphics();
@@ -227,7 +234,9 @@ export class GameScene extends Phaser.Scene {
     const angleText = `Angle: ${currentTank.getTurretAngle().toFixed(0)}°`;
     const powerText = `Power: ${currentTank.getPower().toFixed(0)}%`;
 
-    this.uiText.setText(`${modeText} | ${playerText} | ${angleText} | ${powerText}`);
+    const uiTextStr = `${modeText} | ${playerText} | ${angleText} | ${powerText}`;
+    this.uiText.setText(uiTextStr);
+    this.uiTextShadow.setText(uiTextStr);
   }
 
   private setupNetworkSync(): void {
@@ -270,16 +279,23 @@ export class GameScene extends Phaser.Scene {
     const width = this.cameras.main.width;
     const height = this.cameras.main.height;
 
-    this.add.text(width / 2, height / 2, 'Connection Lost', {
-      fontSize: '32px',
-      color: '#ff0000',
-      fontStyle: 'bold',
-    }).setOrigin(0.5);
+    // Connection Lost text with shadow (bitmap font)
+    const lostShadow = this.add.bitmapText(width / 2 + 2, height / 2 + 2, 'pixel-font', 'Connection Lost', 32);
+    lostShadow.setTintFill(0x000000);
+    lostShadow.setOrigin(0.5);
 
-    this.add.text(width / 2, height / 2 + 50, 'Press R to return to menu', {
-      fontSize: '20px',
-      color: '#ffffff',
-    }).setOrigin(0.5);
+    const lostText = this.add.bitmapText(width / 2, height / 2, 'pixel-font', 'Connection Lost', 32);
+    lostText.setTintFill(0xff0000);
+    lostText.setOrigin(0.5);
+
+    // Press R text with shadow (bitmap font)
+    const pressRShadow = this.add.bitmapText(width / 2 + 1, height / 2 + 51, 'pixel-font', 'Press R to return to menu', 20);
+    pressRShadow.setTintFill(0x000000);
+    pressRShadow.setOrigin(0.5);
+
+    const pressRText = this.add.bitmapText(width / 2, height / 2 + 50, 'pixel-font', 'Press R to return to menu', 20);
+    pressRText.setTintFill(0xffffff);
+    pressRText.setOrigin(0.5);
 
     this.input.keyboard?.once('keydown-R', () => {
       this.scene.start('MenuScene');
@@ -569,23 +585,27 @@ export class GameScene extends Phaser.Scene {
     const height = this.cameras.main.height;
 
     const playerName = `PLAYER ${this.currentPlayerIndex + 1}`;
-    const turnText = this.add.text(width / 2, height / 2, `${playerName}'S TURN`, {
-      fontSize: '64px',
-      color: '#ffffff',
-      fontStyle: 'bold',
-      stroke: '#000000',
-      strokeThickness: 8,
-    }).setOrigin(0.5);
+    const turnTextStr = `${playerName}'S TURN`;
+    
+    // Turn text with shadow (bitmap font)
+    const turnShadow = this.add.bitmapText(width / 2 + 4, height / 2 + 4, 'pixel-font', turnTextStr, 64);
+    turnShadow.setTintFill(0x000000);
+    turnShadow.setOrigin(0.5);
+
+    const turnText = this.add.bitmapText(width / 2, height / 2, 'pixel-font', turnTextStr, 64);
+    turnText.setTintFill(0xffffff);
+    turnText.setOrigin(0.5);
 
     // Fade out animation
     this.tweens.add({
-      targets: turnText,
+      targets: [turnText, turnShadow],
       alpha: 0,
       scale: 1.2,
       duration: 1500,
       ease: 'Power2',
       onComplete: () => {
         turnText.destroy();
+        turnShadow.destroy();
       },
     });
   }
@@ -649,16 +669,23 @@ export class GameScene extends Phaser.Scene {
     const width = this.cameras.main.width;
     const height = this.cameras.main.height;
 
-    this.add.text(width / 2, height / 2, message, {
-      fontSize: '48px',
-      color: '#ffffff',
-      fontStyle: 'bold',
-    }).setOrigin(0.5);
+    // Game over message with shadow (bitmap font)
+    const messageShadow = this.add.bitmapText(width / 2 + 3, height / 2 + 3, 'pixel-font', message, 48);
+    messageShadow.setTintFill(0x000000);
+    messageShadow.setOrigin(0.5);
 
-    this.add.text(width / 2, height / 2 + 60, 'Press R to restart', {
-      fontSize: '24px',
-      color: '#ffffff',
-    }).setOrigin(0.5);
+    const messageText = this.add.bitmapText(width / 2, height / 2, 'pixel-font', message, 48);
+    messageText.setTintFill(0xffffff);
+    messageText.setOrigin(0.5);
+
+    // Press R text with shadow (bitmap font)
+    const restartShadow = this.add.bitmapText(width / 2 + 2, height / 2 + 62, 'pixel-font', 'Press R to restart', 24);
+    restartShadow.setTintFill(0x000000);
+    restartShadow.setOrigin(0.5);
+
+    const restartText = this.add.bitmapText(width / 2, height / 2 + 60, 'pixel-font', 'Press R to restart', 24);
+    restartText.setTintFill(0xffffff);
+    restartText.setOrigin(0.5);
 
     this.input.keyboard?.once('keydown-R', () => {
       this.scene.restart();

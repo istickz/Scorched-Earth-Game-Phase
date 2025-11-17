@@ -44,20 +44,24 @@ export interface IProjectileConfig {
 /**
  * Terrain biome types
  */
-export enum TerrainBiome {
-  TEMPERATE = 'temperate',
-  DESERT = 'desert',
-  ARCTIC = 'arctic',
-  VOLCANIC = 'volcanic',
-}
+export const TerrainBiome = {
+  TEMPERATE: 'temperate',
+  DESERT: 'desert',
+  ARCTIC: 'arctic',
+  VOLCANIC: 'volcanic',
+} as const;
+
+export type TerrainBiome = typeof TerrainBiome[keyof typeof TerrainBiome];
 
 /**
  * Terrain shape types
  */
-export enum TerrainShape {
-  HILLS = 'hills',
-  MOUNTAINS = 'mountains',
-}
+export const TerrainShape = {
+  HILLS: 'hills',
+  MOUNTAINS: 'mountains',
+} as const;
+
+export type TerrainShape = typeof TerrainShape[keyof typeof TerrainShape];
 
 /**
  * Weather types

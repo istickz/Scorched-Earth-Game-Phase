@@ -65,7 +65,8 @@ export class Projectile extends Phaser.Physics.Matter.Sprite {
    */
   private startFlightSound(): void {
     // Try to get AudioSystem from scene registry or data
-    const audioSystem = (this.sceneRef as any).audioSystem;
+    const sceneWithAudio = this.sceneRef as Phaser.Scene & { audioSystem?: { playProjectileFlight: () => { stop: () => void } } };
+    const audioSystem = sceneWithAudio.audioSystem;
     if (audioSystem && typeof audioSystem.playProjectileFlight === 'function') {
       this.flightSound = audioSystem.playProjectileFlight();
     }

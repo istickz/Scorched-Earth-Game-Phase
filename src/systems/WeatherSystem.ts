@@ -60,7 +60,7 @@ export class WeatherSystem {
   /**
    * Create rain effect
    */
-  private createRain(width: number, height: number): void {
+  private createRain(width: number, _height: number): void {
     // Choose color based on time of day
     // Darker for day (more visible on light sky), lighter for night (more visible on dark sky)
     const rainColor = this.timeOfDay === 'day' ? 0x4477aa : 0xaaccff;
@@ -87,7 +87,7 @@ export class WeatherSystem {
   /**
    * Create snow effect
    */
-  private createSnow(width: number, height: number): void {
+  private createSnow(width: number, _height: number): void {
     this.particleEmitter = this.scene.add.particles(0, -10, 'weather-particle', {
       x: { min: 0, max: width },
       y: 0,

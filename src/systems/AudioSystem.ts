@@ -91,7 +91,7 @@ export class AudioSystem {
           try {
             gainNode.gain.linearRampToValueAtTime(0, this.audioContext!.currentTime + 0.05);
             oscillator.stop(this.audioContext!.currentTime + 0.05);
-          } catch (error) {
+          } catch {
             // Ignore errors when stopping
           }
         },

@@ -12,15 +12,16 @@ interface MenuOption {
 export class MenuScene extends Phaser.Scene {
   private menuOptions: MenuOption[] = [];
   private selectedIndex: number = 0;
-  private menuTexts: Phaser.GameObjects.Text[] = [];
+  private menuTexts: Phaser.GameObjects.BitmapText[] = [];
   private cursorSprite!: Phaser.GameObjects.Sprite;
   private blinkTimer: Phaser.Time.TimerEvent | null = null;
   private menuMusic!: Phaser.Sound.BaseSound | null;
   private isDifficultyMenu: boolean = false;
   private difficultyOptions: MenuOption[] = [];
-  private difficultyTexts: Phaser.GameObjects.Text[] = [];
+  private difficultyTexts: Phaser.GameObjects.BitmapText[] = [];
   private difficultyMenuContainer: Phaser.GameObjects.Container | null = null;
   private mainMenuContainer: Phaser.GameObjects.Container | null = null;
+  private cursorGraphics?: Phaser.GameObjects.Graphics;
 
   constructor() {
     super({ key: 'MenuScene' });
@@ -30,16 +31,11 @@ export class MenuScene extends Phaser.Scene {
     const width = this.cameras.main.width;
     const height = this.cameras.main.height;
 
-    // Famicom/NES style colors
-    const nesRed = '#e74c3c';
-    const nesYellow = '#f1c40f';
-    const nesWhite = '#ffffff';
-
     // Create NES-style background
     this.createNESBackground(width, height);
 
     // Create pixelated title
-    this.createTitle(width, height, nesRed, nesYellow, nesWhite);
+    this.createTitle(width, height);
 
     // Define menu options
     this.menuOptions = [
@@ -49,16 +45,16 @@ export class MenuScene extends Phaser.Scene {
       { text: 'QUIT', callback: () => this.quitGame() },
     ];
 
-    // Define difficulty options (BACK first, then difficulties - console game style)
+    // Define difficulty options (difficulties first, then BACK at the bottom)
     this.difficultyOptions = [
-      { text: 'BACK', callback: () => this.hideDifficultyMenu() },
       { text: 'EASY', callback: () => this.startGame(GameMode.Solo, 'easy') },
       { text: 'MEDIUM', callback: () => this.startGame(GameMode.Solo, 'medium') },
       { text: 'HARD', callback: () => this.startGame(GameMode.Solo, 'hard') },
+      { text: 'BACK', callback: () => this.hideDifficultyMenu() },
     ];
 
-    // Create menu with NES style
-    this.createNESMenu(width / 2, height / 2 + 80, nesWhite);
+    // Create menu with NES style (raised higher on screen)
+    this.createNESMenu(width / 2, height / 2 + 40);
 
     // Add copyright/attribution notice
     this.createCopyrightNotice(width, height);
@@ -122,9 +118,7 @@ export class MenuScene extends Phaser.Scene {
    * Create copyright/attribution notice
    */
   private createCopyrightNotice(width: number, height: number): void {
-    const nesGray = '#95a5a6';
-    const fontSize = '12px';
-    const fontFamily = 'Arial, sans-serif';
+    const nesGray = 0x95a5a6;
     
     // Copyright text at the bottom
     const copyrightText = 'Music: "Arcade Puzzler" by Eric Matyas';
@@ -134,19 +128,23 @@ export class MenuScene extends Phaser.Scene {
     const copyrightY = height - 40;
     const websiteY = height - 20;
     
-    // Copyright text
-    this.add.text(width / 2, copyrightY, copyrightText, {
-      fontSize: fontSize,
-      color: nesGray,
-      fontFamily: fontFamily,
-    }).setOrigin(0.5, 0.5);
+    // Copyright text with shadow (NES style)
+    const copyrightShadow = this.add.bitmapText(width / 2 + 1, copyrightY + 1, 'pixel-font', copyrightText, 12);
+    copyrightShadow.setTintFill(0x000000);
+    copyrightShadow.setOrigin(0.5, 0.5);
     
-    // Website text
-    this.add.text(width / 2, websiteY, websiteText, {
-      fontSize: fontSize,
-      color: nesGray,
-      fontFamily: fontFamily,
-    }).setOrigin(0.5, 0.5);
+    const copyright = this.add.bitmapText(width / 2, copyrightY, 'pixel-font', copyrightText, 12);
+    copyright.setTintFill(nesGray);
+    copyright.setOrigin(0.5, 0.5);
+    
+    // Website text with shadow (NES style)
+    const websiteShadow = this.add.bitmapText(width / 2 + 1, websiteY + 1, 'pixel-font', websiteText, 12);
+    websiteShadow.setTintFill(0x000000);
+    websiteShadow.setOrigin(0.5, 0.5);
+    
+    const website = this.add.bitmapText(width / 2, websiteY, 'pixel-font', websiteText, 12);
+    website.setTintFill(nesGray);
+    website.setOrigin(0.5, 0.5);
   }
 
   /**
@@ -172,59 +170,54 @@ export class MenuScene extends Phaser.Scene {
   /**
    * Create pixelated title in NES style
    */
-  private createTitle(width: number, height: number, red: string, yellow: string, white: string): void {
+  private createTitle(width: number, height: number): void {
     const titleY = height / 6;
+    const nesRed = 0xe74c3c;
+    const nesYellow = 0xf1c40f;
+    const nesWhite = 0xffffff;
     
-    // Main title with shadow effect (NES style)
-    const titleShadow = this.add.text(width / 2 + 4, titleY + 4, 'ARTILLERY BATTLE', {
-      fontSize: '48px',
-      color: '#000000',
-      fontFamily: 'Arial Black, sans-serif',
-      fontStyle: 'bold',
-    }).setOrigin(0.5);
+    // Main title with shadow effect (NES style) - using bitmap font
+    const titleShadow = this.add.bitmapText(width / 2 + 4, titleY + 4, 'pixel-font', 'ARTILLERY BATTLE', 48);
+    titleShadow.setTintFill(0x000000);
+    titleShadow.setOrigin(0.5);
 
-    const title = this.add.text(width / 2, titleY, 'ARTILLERY BATTLE', {
-      fontSize: '48px',
-      color: red,
-      fontFamily: 'Arial Black, sans-serif',
-      fontStyle: 'bold',
-      stroke: '#000000',
-      strokeThickness: 2,
-    }).setOrigin(0.5);
+    const title = this.add.bitmapText(width / 2, titleY, 'pixel-font', 'ARTILLERY BATTLE', 48);
+    title.setTintFill(nesRed);
+    title.setOrigin(0.5);
 
     // Subtitle with NES colors
-    const subtitle = this.add.text(width / 2, titleY + 60, 'A Scorched Earth Clone', {
-      fontSize: '20px',
-      color: yellow,
-      fontFamily: 'Arial, sans-serif',
-      fontStyle: 'bold',
-      stroke: '#000000',
-      strokeThickness: 1,
-    }).setOrigin(0.5);
+    const subtitleShadow = this.add.bitmapText(width / 2 + 2, titleY + 60 + 2, 'pixel-font', 'A Scorched Earth Clone', 20);
+    subtitleShadow.setTintFill(0x000000);
+    subtitleShadow.setOrigin(0.5);
+
+    const subtitle = this.add.bitmapText(width / 2, titleY + 60, 'pixel-font', 'A Scorched Earth Clone', 20);
+    subtitle.setTintFill(nesYellow);
+    subtitle.setOrigin(0.5);
 
     // Version badge
     const versionBg = this.add.graphics();
     versionBg.fillStyle(0x34495e);
     versionBg.fillRoundedRect(width / 2 - 50, titleY + 90, 100, 25, 5);
     
-    const version = this.add.text(width / 2, titleY + 102, 'v1.0', {
-      fontSize: '14px',
-      color: white,
-      fontFamily: 'Arial, sans-serif',
-      fontStyle: 'bold',
-    }).setOrigin(0.5);
+    const versionShadow = this.add.bitmapText(width / 2 + 1, titleY + 102 + 1, 'pixel-font', 'v1.0', 14);
+    versionShadow.setTintFill(0x000000);
+    versionShadow.setOrigin(0.5);
+    
+    const version = this.add.bitmapText(width / 2, titleY + 102, 'pixel-font', 'v1.0', 14);
+    version.setTintFill(nesWhite);
+    version.setOrigin(0.5);
 
-    this.add.container(0, 0, [titleShadow, title, subtitle, versionBg, version]);
+    this.add.container(0, 0, [titleShadow, title, subtitleShadow, subtitle, versionBg, versionShadow, version]);
   }
 
   /**
    * Create NES-style menu
    */
-  private createNESMenu(x: number, y: number, white: string): void {
-    // Increased width to accommodate longer text like "P2P MULTIPLAYER"
-    const boxWidth = 450;
+  private createNESMenu(x: number, y: number): void {
+    // Increased width to accommodate longer text like "LOCAL MULTIPLAYER" and "P2P MULTIPLAYER"
+    const boxWidth = 550;
     const boxHeight = this.menuOptions.length * 50 + 40;
-    const padding = 20; // Padding from edges
+    const padding = 40; // Increased padding from edges for better visual spacing
 
     // Create menu box with NES-style border
     const boxContainer = this.add.container(x, y);
@@ -243,6 +236,17 @@ export class MenuScene extends Phaser.Scene {
 
     boxContainer.add(bgGraphics);
 
+    // Title text with shadow (bitmap font)
+    const nesWhite = 0xffffff;
+    const titleShadow = this.add.bitmapText(2, -boxHeight / 2 - 30 + 2, 'pixel-font', 'SELECT MODE', 20);
+    titleShadow.setTintFill(0x000000);
+    titleShadow.setOrigin(0.5, 0.5);
+    
+    const titleText = this.add.bitmapText(0, -boxHeight / 2 - 30, 'pixel-font', 'SELECT MODE', 20);
+    titleText.setTintFill(nesWhite);
+    titleText.setOrigin(0.5, 0.5);
+    boxContainer.add([titleShadow, titleText]);
+
     // Create cursor sprite (will be positioned in updateMenuDisplay)
     this.createCursorSprite(0, 0);
 
@@ -252,22 +256,14 @@ export class MenuScene extends Phaser.Scene {
     this.menuOptions.forEach((option, index) => {
       const optionY = -boxHeight / 2 + 50 + index * 50;
       
-      // Text shadow for depth (left-aligned)
-      const textShadow = this.add.text(textOffsetX, optionY + 2, option.text, {
-        fontSize: '24px',
-        color: '#000000',
-        fontFamily: 'Arial Black, sans-serif',
-        fontStyle: 'bold',
-      }).setOrigin(0, 0.5);
+      // Text shadow for depth (left-aligned) - bitmap font
+      const textShadow = this.add.bitmapText(textOffsetX + 2, optionY + 2, 'pixel-font', option.text, 24);
+      textShadow.setTintFill(0x000000);
+      textShadow.setOrigin(0, 0.5);
 
-      const menuText = this.add.text(textOffsetX, optionY, option.text, {
-        fontSize: '24px',
-        color: white,
-        fontFamily: 'Arial Black, sans-serif',
-        fontStyle: 'bold',
-        stroke: '#000000',
-        strokeThickness: 2,
-      }).setOrigin(0, 0.5);
+      const menuText = this.add.bitmapText(textOffsetX, optionY, 'pixel-font', option.text, 24);
+      menuText.setTintFill(nesWhite);
+      menuText.setOrigin(0, 0.5);
 
       // Make text interactive for mouse clicks
       menuText.setInteractive({ useHandCursor: true });
@@ -316,7 +312,7 @@ export class MenuScene extends Phaser.Scene {
     this.cursorSprite.setVisible(false); // We'll use graphics instead
     
     // Store graphics for cursor
-    (this as any).cursorGraphics = cursorGraphics;
+    this.cursorGraphics = cursorGraphics;
     cursorGraphics.setPosition(x, y);
   }
 
@@ -324,45 +320,35 @@ export class MenuScene extends Phaser.Scene {
    * Update menu display with current selection
    */
   private updateMenuDisplay(): void {
-    const nesWhite = '#ffffff';
-    const nesYellow = '#f1c40f';
-    const nesRed = '#e74c3c';
+    const nesWhite = 0xffffff;
+    const nesYellow = 0xf1c40f;
 
     const currentOptions = this.isDifficultyMenu ? this.difficultyOptions : this.menuOptions;
     const currentTexts = this.isDifficultyMenu ? this.difficultyTexts : this.menuTexts;
 
-    const boxWidth = 450;
+    const boxWidth = 550;
     const boxHeight = currentOptions.length * 50 + 40;
-    const padding = 20;
+    const padding = 40; // Match padding from createNESMenu
     const menuX = this.cameras.main.width / 2;
-    const menuY = this.cameras.main.height / 2 + 80;
+    // Both menus are positioned at the same height
+    const menuY = this.cameras.main.height / 2 + 40;
     const cursorX = menuX - boxWidth / 2 + padding;
     const baseCursorY = menuY - boxHeight / 2 + 50;
 
     // Update cursor position
-    if ((this as any).cursorGraphics) {
-      (this as any).cursorGraphics.setPosition(cursorX, baseCursorY + this.selectedIndex * 50);
-      (this as any).cursorGraphics.setVisible(true);
+    if (this.cursorGraphics) {
+      this.cursorGraphics.setPosition(cursorX, baseCursorY + this.selectedIndex * 50);
+      this.cursorGraphics.setVisible(true);
     }
 
-    // Update text colors
+    // Update text colors (bitmap text uses setTintFill)
     currentTexts.forEach((text, index) => {
       if (index === this.selectedIndex) {
-        // Selected option: yellow with red outline
-        text.setColor(nesYellow);
-        text.setStyle({ 
-          fontStyle: 'bold',
-          stroke: nesRed,
-          strokeThickness: 3,
-        });
+        // Selected option: yellow
+        text.setTintFill(nesYellow);
       } else {
         // Unselected option: white
-        text.setColor(nesWhite);
-        text.setStyle({ 
-          fontStyle: 'bold',
-          stroke: '#000000',
-          strokeThickness: 2,
-        });
+        text.setTintFill(nesWhite);
       }
     });
   }
@@ -371,12 +357,12 @@ export class MenuScene extends Phaser.Scene {
    * Create blinking cursor animation
    */
   private createCursorAnimation(): void {
-    if ((this as any).cursorGraphics) {
+    if (this.cursorGraphics) {
       this.blinkTimer = this.time.addEvent({
         delay: 500,
         callback: () => {
-          if ((this as any).cursorGraphics) {
-            (this as any).cursorGraphics.setAlpha((this as any).cursorGraphics.alpha === 1 ? 0.3 : 1);
+          if (this.cursorGraphics) {
+            this.cursorGraphics.setAlpha(this.cursorGraphics.alpha === 1 ? 0.3 : 1);
           }
         },
         loop: true,
@@ -436,7 +422,7 @@ export class MenuScene extends Phaser.Scene {
    */
   private showDifficultyMenu(): void {
     this.isDifficultyMenu = true;
-    this.selectedIndex = 2; // Default to MEDIUM (index 2 after BACK moved to first)
+    this.selectedIndex = 1; // Default to MEDIUM (index 1: EASY=0, MEDIUM=1, HARD=2, BACK=3)
     
     // Clean up any existing difficulty menu
     if (this.difficultyMenuContainer) {
@@ -449,15 +435,14 @@ export class MenuScene extends Phaser.Scene {
     if (this.mainMenuContainer) {
       this.mainMenuContainer.setVisible(false);
     }
-    if ((this as any).cursorGraphics) {
-      (this as any).cursorGraphics.setVisible(false);
+    if (this.cursorGraphics) {
+      this.cursorGraphics.setVisible(false);
     }
     
     // Create difficulty menu
     const width = this.cameras.main.width;
     const height = this.cameras.main.height;
-    const nesWhite = '#ffffff';
-    this.createDifficultyMenu(width / 2, height / 2 + 80, nesWhite);
+    this.createDifficultyMenu(width / 2, height / 2 + 40);
     
     this.updateMenuDisplay();
   }
@@ -489,10 +474,10 @@ export class MenuScene extends Phaser.Scene {
   /**
    * Create difficulty selection menu
    */
-  private createDifficultyMenu(x: number, y: number, white: string): void {
-    const boxWidth = 450;
+  private createDifficultyMenu(x: number, y: number): void {
+    const boxWidth = 550;
     const boxHeight = this.difficultyOptions.length * 50 + 40;
-    const padding = 20;
+    const padding = 40; // Match padding from createNESMenu
 
     // Create menu box with NES-style border
     const boxContainer = this.add.container(x, y);
@@ -511,16 +496,16 @@ export class MenuScene extends Phaser.Scene {
 
     boxContainer.add(bgGraphics);
 
-    // Title text
-    const titleText = this.add.text(0, -boxHeight / 2 - 30, 'SELECT DIFFICULTY', {
-      fontSize: '20px',
-      color: white,
-      fontFamily: 'Arial Black, sans-serif',
-      fontStyle: 'bold',
-      stroke: '#000000',
-      strokeThickness: 2,
-    }).setOrigin(0.5, 0.5);
-    boxContainer.add(titleText);
+    // Title text with shadow (bitmap font)
+    const nesWhite = 0xffffff;
+    const titleShadow = this.add.bitmapText(2, -boxHeight / 2 - 30 + 2, 'pixel-font', 'SELECT DIFFICULTY', 20);
+    titleShadow.setTintFill(0x000000);
+    titleShadow.setOrigin(0.5, 0.5);
+    
+    const titleText = this.add.bitmapText(0, -boxHeight / 2 - 30, 'pixel-font', 'SELECT DIFFICULTY', 20);
+    titleText.setTintFill(nesWhite);
+    titleText.setOrigin(0.5, 0.5);
+    boxContainer.add([titleShadow, titleText]);
 
     // Create menu option texts (left-aligned)
     const textOffsetX = -boxWidth / 2 + padding + 60;
@@ -528,22 +513,14 @@ export class MenuScene extends Phaser.Scene {
     this.difficultyOptions.forEach((option, index) => {
       const optionY = -boxHeight / 2 + 50 + index * 50;
       
-      // Text shadow for depth (left-aligned)
-      const textShadow = this.add.text(textOffsetX, optionY + 2, option.text, {
-        fontSize: '24px',
-        color: '#000000',
-        fontFamily: 'Arial Black, sans-serif',
-        fontStyle: 'bold',
-      }).setOrigin(0, 0.5);
+      // Text shadow for depth (left-aligned) - bitmap font
+      const textShadow = this.add.bitmapText(textOffsetX + 2, optionY + 2, 'pixel-font', option.text, 24);
+      textShadow.setTintFill(0x000000);
+      textShadow.setOrigin(0, 0.5);
 
-      const menuText = this.add.text(textOffsetX, optionY, option.text, {
-        fontSize: '24px',
-        color: white,
-        fontFamily: 'Arial Black, sans-serif',
-        fontStyle: 'bold',
-        stroke: '#000000',
-        strokeThickness: 2,
-      }).setOrigin(0, 0.5);
+      const menuText = this.add.bitmapText(textOffsetX, optionY, 'pixel-font', option.text, 24);
+      menuText.setTintFill(nesWhite);
+      menuText.setOrigin(0, 0.5);
 
       // Make text interactive for mouse clicks
       menuText.setInteractive({ useHandCursor: true });

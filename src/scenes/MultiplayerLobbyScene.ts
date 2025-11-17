@@ -8,11 +8,14 @@ import { type ConnectionState } from '@/types';
 export class MultiplayerLobbyScene extends Phaser.Scene {
   private webrtcManager!: WebRTCManager;
   private isHost: boolean = false;
-  private statusText!: Phaser.GameObjects.Text;
-  private offerText!: Phaser.GameObjects.Text;
-  private answerText!: Phaser.GameObjects.Text;
-  private offerInput!: Phaser.GameObjects.DOMElement;
-  private answerInput!: Phaser.GameObjects.DOMElement;
+  private statusText!: Phaser.GameObjects.BitmapText;
+  private statusTextShadow!: Phaser.GameObjects.BitmapText;
+  private offerText!: Phaser.GameObjects.BitmapText;
+  private offerTextShadow!: Phaser.GameObjects.BitmapText;
+  private answerText!: Phaser.GameObjects.BitmapText;
+  private answerTextShadow!: Phaser.GameObjects.BitmapText;
+  private offerInput!: Phaser.GameObjects.DOMElement | Phaser.GameObjects.BitmapText;
+  private answerInput!: Phaser.GameObjects.DOMElement | { node: HTMLTextAreaElement; destroy: () => void };
   private iceCandidates: RTCIceCandidateInit[] = [];
   private remoteIceCandidates: RTCIceCandidateInit[] = [];
 
@@ -24,34 +27,45 @@ export class MultiplayerLobbyScene extends Phaser.Scene {
     const width = this.cameras.main.width;
     const height = this.cameras.main.height;
 
-    // Title
-    this.add.text(width / 2, 50, 'P2P Multiplayer Setup', {
-      fontSize: '32px',
-      color: '#ffffff',
-      fontStyle: 'bold',
-    }).setOrigin(0.5);
+    // Title with shadow (bitmap font)
+    const titleShadow = this.add.bitmapText(width / 2 + 2, 52, 'pixel-font', 'P2P Multiplayer Setup', 32);
+    titleShadow.setTintFill(0x000000);
+    titleShadow.setOrigin(0.5);
 
-    // Status text
-    this.statusText = this.add.text(width / 2, 120, 'Choose your role:', {
-      fontSize: '20px',
-      color: '#ffffff',
-    }).setOrigin(0.5);
+    const title = this.add.bitmapText(width / 2, 50, 'pixel-font', 'P2P Multiplayer Setup', 32);
+    title.setTintFill(0xffffff);
+    title.setOrigin(0.5);
+
+    // Status text with shadow (bitmap font)
+    this.statusTextShadow = this.add.bitmapText(width / 2 + 1, 121, 'pixel-font', 'Choose your role:', 20);
+    this.statusTextShadow.setTintFill(0x000000);
+    this.statusTextShadow.setOrigin(0.5);
+
+    this.statusText = this.add.bitmapText(width / 2, 120, 'pixel-font', 'Choose your role:', 20);
+    this.statusText.setTintFill(0xffffff);
+    this.statusText.setOrigin(0.5);
 
     // Create host/join buttons
     this.createButton(width / 2, 180, 'Create Game (Host)', () => this.startAsHost());
     this.createButton(width / 2, 250, 'Join Game (Client)', () => this.startAsClient());
 
-    // Instructions
-    this.add.text(width / 2, height - 100, 'Copy and paste the SDP offer/answer between players', {
-      fontSize: '16px',
-      color: '#aaaaaa',
-    }).setOrigin(0.5);
+    // Instructions with shadow (bitmap font)
+    const instructionsStr = 'Copy and paste the SDP offer/answer between players';
+    const instructionsShadow = this.add.bitmapText(width / 2 + 1, height - 99, 'pixel-font', instructionsStr, 16);
+    instructionsShadow.setTintFill(0x000000);
+    instructionsShadow.setOrigin(0.5);
+
+    const instructions = this.add.bitmapText(width / 2, height - 100, 'pixel-font', instructionsStr, 16);
+    instructions.setTintFill(0xaaaaaa);
+    instructions.setOrigin(0.5);
 
     // Initialize WebRTC manager
     try {
       // Check if WebRTC is supported
       if (typeof RTCPeerConnection === 'undefined') {
-        this.statusText.setText('WebRTC is not supported in this browser. Please use a modern browser.');
+        const errorMsg = 'WebRTC is not supported in this browser. Please use a modern browser.';
+        this.statusText.setText(errorMsg);
+        this.statusTextShadow.setText(errorMsg);
         return;
       }
 
@@ -67,7 +81,9 @@ export class MultiplayerLobbyScene extends Phaser.Scene {
     } catch (error) {
       console.error('Error initializing WebRTC:', error);
       const errorMessage = error instanceof Error ? error.message : String(error);
-      this.statusText.setText(`Error initializing WebRTC: ${errorMessage}`);
+      const errorMsg = `Error initializing WebRTC: ${errorMessage}`;
+      this.statusText.setText(errorMsg);
+      this.statusTextShadow.setText(errorMsg);
     }
   }
 
@@ -76,12 +92,16 @@ export class MultiplayerLobbyScene extends Phaser.Scene {
    */
   private async startAsHost(): Promise<void> {
     if (!this.webrtcManager) {
-      this.statusText.setText('WebRTC not initialized. Please refresh the page.');
+      const errorMsg = 'WebRTC not initialized. Please refresh the page.';
+      this.statusText.setText(errorMsg);
+      this.statusTextShadow.setText(errorMsg);
       return;
     }
 
     this.isHost = true;
-    this.statusText.setText('Creating offer...');
+    const creatingMsg = 'Creating offer...';
+    this.statusText.setText(creatingMsg);
+    this.statusTextShadow.setText(creatingMsg);
 
     try {
       // Check if WebRTC is supported
@@ -94,11 +114,15 @@ export class MultiplayerLobbyScene extends Phaser.Scene {
 
       // Display offer
       this.showOfferInput(offerString);
-      this.statusText.setText('Offer created! Share it with the other player.');
+      const successMsg = 'Offer created! Share it with the other player.';
+      this.statusText.setText(successMsg);
+      this.statusTextShadow.setText(successMsg);
     } catch (error) {
       console.error('Error creating offer:', error);
       const errorMessage = error instanceof Error ? error.message : String(error);
-      this.statusText.setText(`Error creating offer: ${errorMessage}. Please try again.`);
+      const errorMsg = `Error creating offer: ${errorMessage}. Please try again.`;
+      this.statusText.setText(errorMsg);
+      this.statusTextShadow.setText(errorMsg);
     }
   }
 
@@ -108,7 +132,9 @@ export class MultiplayerLobbyScene extends Phaser.Scene {
   private startAsClient(): void {
     this.isHost = false;
     this.showAnswerInput();
-    this.statusText.setText('Waiting for offer from host...');
+    const waitingMsg = 'Waiting for offer from host...';
+    this.statusText.setText(waitingMsg);
+    this.statusTextShadow.setText(waitingMsg);
   }
 
   /**
@@ -124,12 +150,19 @@ export class MultiplayerLobbyScene extends Phaser.Scene {
     if (this.offerText) {
       this.offerText.destroy();
     }
+    if (this.offerTextShadow) {
+      this.offerTextShadow.destroy();
+    }
 
-    // Label
-    this.offerText = this.add.text(width / 2, 320, 'Your Offer (copy this):', {
-      fontSize: '18px',
-      color: '#ffffff',
-    }).setOrigin(0.5);
+    // Label with shadow (bitmap font)
+    const offerLabelStr = 'Your Offer (copy this):';
+    this.offerTextShadow = this.add.bitmapText(width / 2 + 1, 321, 'pixel-font', offerLabelStr, 18);
+    this.offerTextShadow.setTintFill(0x000000);
+    this.offerTextShadow.setOrigin(0.5);
+
+    this.offerText = this.add.bitmapText(width / 2, 320, 'pixel-font', offerLabelStr, 18);
+    this.offerText.setTintFill(0xffffff);
+    this.offerText.setOrigin(0.5);
 
     // Create textarea for offer
     const offerElement = document.createElement('textarea');
@@ -150,22 +183,24 @@ export class MultiplayerLobbyScene extends Phaser.Scene {
       this.offerInput = this.add.dom(width / 2, 380, offerElement);
     } catch (error) {
       console.error('Error creating DOM element:', error);
-      // Fallback: use text object instead
-      const text = this.add.text(width / 2, 380, offerString, {
-        fontSize: '10px',
-        color: '#ffffff',
-        wordWrap: { width: 600 },
-        backgroundColor: '#2a2a2a',
-        padding: { x: 8, y: 8 },
-      }).setOrigin(0.5);
-      this.offerInput = text as any;
+      // Fallback: use bitmap text instead
+      const textShadow = this.add.bitmapText(width / 2 + 1, 381, 'pixel-font', offerString, 10);
+      textShadow.setTintFill(0x000000);
+      textShadow.setOrigin(0.5);
+      
+      const text = this.add.bitmapText(width / 2, 380, 'pixel-font', offerString, 10);
+      text.setTintFill(0xffffff);
+      text.setOrigin(0.5);
+      this.offerInput = text;
     }
 
     // Copy button
     this.createButton(width / 2, 450, 'Copy Offer', () => {
       offerElement.select();
       document.execCommand('copy');
-      this.statusText.setText('Offer copied to clipboard!');
+      const copiedMsg = 'Offer copied to clipboard!';
+      this.statusText.setText(copiedMsg);
+      this.statusTextShadow.setText(copiedMsg);
     });
 
     // Answer input (for host to paste answer)
@@ -187,11 +222,18 @@ export class MultiplayerLobbyScene extends Phaser.Scene {
     if (this.answerText) {
       this.answerText.destroy();
     }
+    if (this.answerTextShadow) {
+      this.answerTextShadow.destroy();
+    }
 
-    this.answerText = this.add.text(width / 2, 520, labelText, {
-      fontSize: '18px',
-      color: '#ffffff',
-    }).setOrigin(0.5);
+    // Label with shadow (bitmap font)
+    this.answerTextShadow = this.add.bitmapText(width / 2 + 1, 521, 'pixel-font', labelText, 18);
+    this.answerTextShadow.setTintFill(0x000000);
+    this.answerTextShadow.setOrigin(0.5);
+
+    this.answerText = this.add.bitmapText(width / 2, 520, 'pixel-font', labelText, 18);
+    this.answerText.setTintFill(0xffffff);
+    this.answerText.setOrigin(0.5);
 
     // Create textarea for answer/offer
     const answerElement = document.createElement('textarea');
@@ -219,7 +261,7 @@ export class MultiplayerLobbyScene extends Phaser.Scene {
       container.style.width = '600px';
       container.appendChild(answerElement);
       document.body.appendChild(container);
-      this.answerInput = { node: answerElement, destroy: () => container.remove() } as any;
+      this.answerInput = { node: answerElement, destroy: () => container.remove() };
     }
 
     // Submit button
@@ -250,10 +292,15 @@ export class MultiplayerLobbyScene extends Phaser.Scene {
 
         // Show answer to copy
         this.showAnswerInput();
-        if (this.answerInput && this.answerInput.node) {
-          (this.answerInput.node as HTMLTextAreaElement).value = answerString;
+        if (this.answerInput && 'node' in this.answerInput && this.answerInput.node) {
+          const textarea = this.answerInput.node;
+          if (textarea instanceof HTMLTextAreaElement) {
+            textarea.value = answerString;
+          }
         }
-        this.statusText.setText('Answer created! Share it with the host.');
+        const answerCreatedMsg = 'Answer created! Share it with the host.';
+        this.statusText.setText(answerCreatedMsg);
+        this.statusTextShadow.setText(answerCreatedMsg);
       }
 
       // Add any pending ICE candidates
@@ -263,7 +310,9 @@ export class MultiplayerLobbyScene extends Phaser.Scene {
       this.remoteIceCandidates = [];
     } catch (error) {
       console.error('Error handling SDP:', error);
-      this.statusText.setText('Invalid SDP. Please check and try again.');
+      const errorMsg = 'Invalid SDP. Please check and try again.';
+      this.statusText.setText(errorMsg);
+      this.statusTextShadow.setText(errorMsg);
     }
   }
 
@@ -271,12 +320,13 @@ export class MultiplayerLobbyScene extends Phaser.Scene {
    * Update status display
    */
   private updateStatus(state: ConnectionState): void {
+    let statusMsg = '';
     switch (state) {
       case 'connecting':
-        this.statusText.setText('Connecting...');
+        statusMsg = 'Connecting...';
         break;
       case 'connected':
-        this.statusText.setText('Connected! Starting game...');
+        statusMsg = 'Connected! Starting game...';
         // Start game after short delay
         this.time.delayedCall(1000, () => {
         this.scene.start('GameScene', {
@@ -286,11 +336,15 @@ export class MultiplayerLobbyScene extends Phaser.Scene {
         });
         break;
       case 'disconnected':
-        this.statusText.setText('Disconnected');
+        statusMsg = 'Disconnected';
         break;
       case 'error':
-        this.statusText.setText('Connection error. Please try again.');
+        statusMsg = 'Connection error. Please try again.';
         break;
+    }
+    if (statusMsg) {
+      this.statusText.setText(statusMsg);
+      this.statusTextShadow.setText(statusMsg);
     }
   }
 
@@ -307,12 +361,16 @@ export class MultiplayerLobbyScene extends Phaser.Scene {
     bg.lineStyle(2, 0xffffff);
     bg.strokeRoundedRect(-buttonWidth / 2, -buttonHeight / 2, buttonWidth, buttonHeight, 10);
 
-    const buttonText = this.add.text(0, 0, text, {
-      fontSize: '18px',
-      color: '#ffffff',
-    }).setOrigin(0.5);
+    // Button text with shadow (bitmap font)
+    const buttonTextShadow = this.add.bitmapText(1, 1, 'pixel-font', text, 18);
+    buttonTextShadow.setTintFill(0x000000);
+    buttonTextShadow.setOrigin(0.5);
 
-    const container = this.add.container(x, y, [bg, buttonText]);
+    const buttonText = this.add.bitmapText(0, 0, 'pixel-font', text, 18);
+    buttonText.setTintFill(0xffffff);
+    buttonText.setOrigin(0.5);
+
+    const container = this.add.container(x, y, [bg, buttonTextShadow, buttonText]);
     container.setSize(buttonWidth, buttonHeight);
     container.setInteractive({ useHandCursor: true });
 
