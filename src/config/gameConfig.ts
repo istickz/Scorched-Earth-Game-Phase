@@ -3,6 +3,7 @@ import { BootScene } from '@/scenes/BootScene';
 import { MenuScene } from '@/scenes/MenuScene';
 import { GameScene } from '@/scenes/GameScene';
 import { MultiplayerLobbyScene } from '@/scenes/MultiplayerLobbyScene';
+import { LevelSelectScene } from '@/scenes/LevelSelectScene';
 
 /**
  * Get optimal game dimensions based on user's screen/window size
@@ -54,7 +55,7 @@ export const gameConfig: Phaser.Types.Core.GameConfig = {
       enableSleeping: false,
     },
   },
-  scene: [BootScene, MenuScene, MultiplayerLobbyScene, GameScene],
+  scene: [BootScene, MenuScene, MultiplayerLobbyScene, LevelSelectScene, GameScene],
   scale: {
     mode: Phaser.Scale.RESIZE, // RESIZE fills the entire container without black bars
     autoCenter: Phaser.Scale.CENTER_BOTH,

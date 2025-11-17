@@ -12,12 +12,34 @@ export class AISystem {
   private maxShotsMemory: number = 5;
   private terrainSystem: TerrainSystem;
   private scene: Phaser.Scene;
+  private lastSuccessfulShot: { angle: number; power: number } | null = null;
+  private readonly HIT_THRESHOLD = 50; // Distance in pixels to consider a hit
+
+  // Adaptive search ranges - сужаются после каждого промаха
+  private angleSearchRange: { min: number; max: number } | null = null;
+  private powerSearchRange: { min: number; max: number } | null = null;
 
   // Difficulty-based deviation ranges (in degrees and power percentage)
   private readonly difficultySettings = {
     easy: { angleDeviation: 15, powerDeviation: 20 },
     medium: { angleDeviation: 8, powerDeviation: 10 },
     hard: { angleDeviation: 3, powerDeviation: 5 },
+  };
+
+  // Difficulty-based learning accuracy multipliers
+  // Влияет на точность корректировок при обучении
+  private readonly difficultyAccuracyMultiplier = {
+    easy: 0.7,    // На easy - менее точные корректировки (70% от базовых)
+    medium: 1.0,   // На medium - нормальные корректировки
+    hard: 1.3,     // На hard - более точные корректировки (130% от базовых)
+  };
+
+  // Difficulty-based range narrowing factors
+  // Влияет на скорость сужения диапазона поиска
+  private readonly difficultyNarrowingFactor = {
+    easy: 0.7,     // Медленнее сужение на easy (сужаем на 30% вместо 40%)
+    medium: 0.6,   // Нормальное сужение (сужаем на 40%)
+    hard: 0.5,     // Быстрее сужение на hard (сужаем на 50%)
   };
 
   constructor(scene: Phaser.Scene, terrainSystem: TerrainSystem, difficulty: AIDifficulty = 'medium') {
@@ -35,13 +57,47 @@ export class AISystem {
     targetX: number,
     targetY: number
   ): { angle: number; power: number } {
-    // Calculate base trajectory
+    // If we have a successful shot and target hasn't moved significantly, repeat it
+    if (this.lastSuccessfulShot) {
+      // Check if target position is similar to when we last hit
+      const lastShot = this.previousShots[this.previousShots.length - 1];
+      if (lastShot) {
+        const targetMovement = Phaser.Math.Distance.Between(
+          lastShot.targetX,
+          lastShot.targetY,
+          targetX,
+          targetY
+        );
+        
+        // If target hasn't moved much (< 30 pixels), repeat successful shot exactly
+        // No learning, no deviation - just repeat what worked
+        if (targetMovement < 30) {
+          return { ...this.lastSuccessfulShot };
+        }
+      }
+    }
+
+    // Calculate base trajectory (first shot or if target moved significantly)
     const baseShot = this.calculateTrajectory(tankX, tankY, targetX, targetY);
 
-    // Apply learning from previous shots
+    // Initialize or update search ranges
+    if (!this.angleSearchRange || !this.powerSearchRange) {
+      // First shot or reset - initialize wide ranges
+      this.angleSearchRange = {
+        min: baseShot.angle - 20,
+        max: baseShot.angle + 20,
+      };
+      this.powerSearchRange = {
+        min: Math.max(20, baseShot.power - 25),
+        max: Math.min(100, baseShot.power + 25),
+      };
+    }
+
+    // Apply learning with proportional adjustments and range narrowing
     const adjustedShot = this.applyLearning(baseShot);
 
     // Add random deviation based on difficulty
+    // Note: deviation is only added for new shots, not for repeated successful ones
     const finalShot = this.addDeviation(adjustedShot);
 
     return finalShot;
@@ -265,57 +321,149 @@ export class AISystem {
   }
 
   /**
-   * Apply learning from previous shots
+   * Apply learning from previous shots with proportional adjustments and range narrowing
    */
   private applyLearning(
     baseShot: { angle: number; power: number }
   ): { angle: number; power: number } {
-    if (this.previousShots.length === 0) {
+    if (this.previousShots.length === 0 || !this.angleSearchRange || !this.powerSearchRange) {
       return baseShot;
     }
 
-    // Analyze previous shots to adjust
-    let angleAdjustment = 0;
+    // Check if last shot was successful - if so, don't adjust
+    const lastShot = this.previousShots[this.previousShots.length - 1];
+    if (lastShot && lastShot.distance < this.HIT_THRESHOLD) {
+      // Reset ranges for next target
+      this.angleSearchRange = null;
+      this.powerSearchRange = null;
+      return baseShot;
+    }
+
+    // Get last miss (most recent miss)
+    const recentMisses = this.previousShots
+      .slice(-3)
+      .filter(shot => shot.distance >= this.HIT_THRESHOLD);
+
+    if (recentMisses.length === 0) {
+      return baseShot;
+    }
+
+    const lastMiss = recentMisses[recentMisses.length - 1];
+    const distanceX = lastMiss.hitX - lastMiss.targetX;
+    const distanceY = lastMiss.hitY - lastMiss.targetY;
+    const missDistance = Math.sqrt(distanceX * distanceX + distanceY * distanceY);
+
+    // АДАПТИВНЫЕ ШАГИ: коэффициент корректировки уменьшается при приближении к цели
+    // Чем ближе к цели, тем меньше корректировка (более точные движения)
+    // Учитываем сложность: на easy - менее точные корректировки, на hard - более точные
+    const accuracyMultiplier = this.difficultyAccuracyMultiplier[this.difficulty];
+    const basePowerCoefficient = 0.12 * accuracyMultiplier; // Базовый коэффициент для силы с учетом сложности
+    
+    // Адаптивный множитель: чем меньше промах, тем меньше корректировка
+    // При промахе 200px → множитель 1.0, при промахе 50px → множитель 0.3
+    const adaptiveMultiplier = Math.max(0.3, Math.min(1.0, missDistance / 200));
+    
+    const maxPowerAdjustment = 15 * adaptiveMultiplier * accuracyMultiplier; // Адаптивный максимум с учетом сложности
+
+    // ИСПРАВЛЕННАЯ логика корректировки:
+    // В artillery играх горизонтальная дальность зависит в основном от СИЛЫ
+    // Поэтому корректируем силу на основе горизонтального промаха (distanceX)
+    // А угол используем для более тонкой настройки вертикального положения
+    
+    // Определяем направление стрельбы (влево или вправо)
+    const screenCenter = this.scene.cameras.main.width / 2;
+    const shootingLeft = lastMiss.targetX < screenCenter; // Target is on left side
+    
+    // Вычисляем горизонтальную ошибку дальности (не зависит от направления)
+    // Если снаряд перелетел цель - положительное значение
+    // Если недолетел - отрицательное значение
+    let rangeError: number;
+    if (shootingLeft) {
+      // Стреляем влево: если hitX < targetX, то перелет (снаряд слева от цели)
+      rangeError = lastMiss.targetX - lastMiss.hitX;
+    } else {
+      // Стреляем вправо: если hitX > targetX, то перелет (снаряд справа от цели)
+      rangeError = lastMiss.hitX - lastMiss.targetX;
+    }
+    
+    // Корректируем СИЛУ на основе горизонтальной ошибки дальности
     let powerAdjustment = 0;
-    let adjustmentCount = 0;
-
-    // Only learn from recent shots (last 2-3)
-    const recentShots = this.previousShots.slice(-3);
-
-    for (const shot of recentShots) {
-      const distanceX = shot.hitX - shot.targetX;
-      const distanceY = shot.hitY - shot.targetY;
-      const missDistance = Math.sqrt(distanceX * distanceX + distanceY * distanceY);
-
-      // Only adjust if shot was reasonably close (within 200 pixels)
-      if (missDistance < 200) {
-        // Adjust angle based on horizontal miss
-        if (Math.abs(distanceX) > 20) {
-          angleAdjustment += distanceX > 0 ? -3 : 3;
-          adjustmentCount++;
-        }
-
-        // Adjust power based on distance miss
-        if (missDistance > 30) {
-          powerAdjustment += missDistance > 100 ? 5 : 2;
-          adjustmentCount++;
-        }
+    if (Math.abs(rangeError) > 15) {
+      // Если перелет (rangeError > 0) - уменьшаем силу
+      // Если недолет (rangeError < 0) - увеличиваем силу
+      const proportionalPowerAdjustment = Math.min(
+        Math.abs(rangeError) * basePowerCoefficient * adaptiveMultiplier,
+        maxPowerAdjustment
+      );
+      powerAdjustment = rangeError > 0 ? -proportionalPowerAdjustment : proportionalPowerAdjustment;
+    }
+    
+    // Корректируем УГОЛ только для тонкой настройки (небольшие корректировки)
+    // Используем вертикальную ошибку для понимания, нужна ли более крутая или пологая траектория
+    let angleAdjustment = 0;
+    if (Math.abs(rangeError) > 15 && Math.abs(distanceY) > 20) {
+      // Небольшая корректировка угла только если есть значительные ошибки
+      // Если снаряд высоко И далеко - траектория слишком крутая, нужен более пологий угол
+      // Для левого танка: уменьшаем угол (более горизонтально)
+      // Для правого танка: увеличиваем угол к 180° (более горизонтально)
+      const maxAngleCorrection = 5 * adaptiveMultiplier * accuracyMultiplier; // Меньше чем для силы
+      
+      if (rangeError > 0 && distanceY < 0) {
+        // Перелет и снаряд выше цели - траектория слишком крутая
+        const correction = Math.min(Math.abs(rangeError) * 0.02 * adaptiveMultiplier, maxAngleCorrection);
+        // Для левого танка (угол 0-90): уменьшаем угол
+        // Для правого танка (угол 180-270): увеличиваем к 180
+        angleAdjustment = shootingLeft ? -correction : correction;
+      } else if (rangeError < 0 && distanceY > 0) {
+        // Недолет и снаряд ниже цели - траектория слишком пологая
+        const correction = Math.min(Math.abs(rangeError) * 0.02 * adaptiveMultiplier, maxAngleCorrection);
+        // Для левого танка: увеличиваем угол
+        // Для правого танка: уменьшаем от 180
+        angleAdjustment = shootingLeft ? correction : -correction;
       }
     }
 
-    // Apply averaged adjustments
-    // Note: angle is in world firing coordinates (0-180°), not clamped here
-    if (adjustmentCount > 0) {
-      const avgAngleAdjustment = angleAdjustment / adjustmentCount;
-      const avgPowerAdjustment = powerAdjustment / adjustmentCount;
+    // СУЖЕНИЕ ДИАПАЗОНА ПОИСКА
+    // После каждого промаха сужаем диапазон вокруг текущего выстрела
+    // На easy - медленнее сужение, на hard - быстрее сужение
+    const narrowingFactor = this.difficultyNarrowingFactor[this.difficulty];
 
-      return {
-        angle: baseShot.angle + avgAngleAdjustment, // Will be converted to turret angle later
-        power: Phaser.Math.Clamp(baseShot.power + avgPowerAdjustment, 20, 100),
-      };
-    }
+    // Обновляем значения на основе корректировок
+    const newAngle = lastMiss.angle + angleAdjustment;
+    const newPower = Phaser.Math.Clamp(lastMiss.power + powerAdjustment, 20, 100);
 
-    return baseShot;
+    // Сужаем диапазон угла вокруг нового значения
+    const currentAngleRange = this.angleSearchRange.max - this.angleSearchRange.min;
+    const narrowedAngleRange = currentAngleRange * narrowingFactor;
+    this.angleSearchRange = {
+      min: newAngle - narrowedAngleRange / 2,
+      max: newAngle + narrowedAngleRange / 2,
+    };
+
+    // Сужаем диапазон силы вокруг нового значения
+    const currentPowerRange = this.powerSearchRange.max - this.powerSearchRange.min;
+    const narrowedPowerRange = currentPowerRange * narrowingFactor;
+    this.powerSearchRange = {
+      min: Math.max(20, newPower - narrowedPowerRange / 2),
+      max: Math.min(100, newPower + narrowedPowerRange / 2),
+    };
+
+    // Выбираем значение из суженного диапазона (ближе к центру для быстрой сходимости)
+    // Используем 70% от центра к краю для более агрессивного поиска
+    const angleCenter = (this.angleSearchRange.min + this.angleSearchRange.max) / 2;
+    const finalAngle = angleCenter + (newAngle - angleCenter) * 0.7;
+
+    const powerCenter = (this.powerSearchRange.min + this.powerSearchRange.max) / 2;
+    const finalPower = Phaser.Math.Clamp(
+      powerCenter + (newPower - powerCenter) * 0.7,
+      this.powerSearchRange.min,
+      this.powerSearchRange.max
+    );
+
+    return {
+      angle: finalAngle,
+      power: finalPower,
+    };
   }
 
   /**
@@ -340,6 +488,30 @@ export class AISystem {
    */
   public recordShotResult(result: IAIShotResult): void {
     this.previousShots.push(result);
+
+    // If shot was successful (hit the target), save it for repetition
+    if (result.distance < this.HIT_THRESHOLD) {
+      this.lastSuccessfulShot = {
+        angle: result.angle,
+        power: result.power,
+      };
+      // Reset search ranges after successful hit
+      this.angleSearchRange = null;
+      this.powerSearchRange = null;
+    } else {
+      // If we missed, clear successful shot if we've missed multiple times
+      // This allows AI to adapt if target moves or situation changes
+      const recentMisses = this.previousShots
+        .slice(-3)
+        .filter(shot => shot.distance >= this.HIT_THRESHOLD);
+      
+      if (recentMisses.length >= 3) {
+        // После 3 промахов подряд - сброс диапазонов для нового подхода
+        this.lastSuccessfulShot = null;
+        this.angleSearchRange = null;
+        this.powerSearchRange = null;
+      }
+    }
 
     // Keep only recent shots
     if (this.previousShots.length > this.maxShotsMemory) {

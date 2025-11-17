@@ -1,5 +1,6 @@
 import Phaser from 'phaser';
-import { type ITerrainConfig } from '@/types';
+import { type ITerrainConfig, TerrainShape } from '@/types';
+import { NoiseGenerator } from '@/utils/NoiseGenerator';
 
 /**
  * Terrain system for procedural generation and destruction
@@ -23,9 +24,16 @@ export class TerrainSystem {
     this.terrainData = [];
     this.terrainHeight = [];
 
-    // Randomly choose day or night
-    this.isNight = Math.random() < 0.5;
-    this.setTimeOfDay(this.isNight);
+    // Use provided colors or randomly choose day or night
+    if (config.skyColor !== undefined && config.groundColor !== undefined) {
+      this.skyColor = config.skyColor;
+      this.groundColor = config.groundColor;
+      this.isNight = config.isNight ?? false;
+    } else {
+      // Fallback to random if no colors provided
+      this.isNight = Math.random() < 0.5;
+      this.setTimeOfDay(this.isNight);
+    }
 
     this.generate(config);
     this.render();
@@ -47,55 +55,13 @@ export class TerrainSystem {
   }
 
   /**
-   * Simple seeded random number generator
-   */
-  private seededRandom(seed: number): number {
-    const x = Math.sin(seed) * 10000;
-    return x - Math.floor(x);
-  }
-
-  /**
-   * Generate smooth noise value using interpolation
-   */
-  private smoothNoise(x: number, seed: number): number {
-    const x1 = Math.floor(x);
-    const x2 = x1 + 1;
-    const t = x - x1;
-
-    const v1 = this.seededRandom(seed + x1 * 0.01);
-    const v2 = this.seededRandom(seed + x2 * 0.01);
-
-    // Smooth interpolation (cosine interpolation for smoother result)
-    const smoothT = (1 - Math.cos(t * Math.PI)) * 0.5;
-    return v1 * (1 - smoothT) + v2 * smoothT;
-  }
-
-  /**
-   * Generate fractal noise (multiple octaves)
-   */
-  private fractalNoise(x: number, seed: number, octaves: number = 6): number {
-    let value = 0;
-    let amplitude = 1;
-    let frequency = 0.005;
-    let maxValue = 0;
-
-    for (let i = 0; i < octaves; i++) {
-      value += this.smoothNoise(x * frequency, seed + i * 1000) * amplitude;
-      maxValue += amplitude;
-      amplitude *= 0.5; // Each octave has half the amplitude
-      frequency *= 2; // Each octave has double the frequency
-    }
-
-    return value / maxValue; // Normalize to 0-1
-  }
-
-  /**
    * Generate procedural terrain using improved fractal noise
    */
   private generate(config: ITerrainConfig): void {
     const minHeight = config.minHeight || this.height * 0.3;
     const maxHeight = config.maxHeight || this.height * 0.7;
     const roughness = config.roughness || 0.3;
+    const shape = config.shape || TerrainShape.HILLS;
     // Generate a random seed if not provided, ensuring different terrain each time
     const seed = config.seed !== undefined ? config.seed : Math.random() * 1000000;
 
@@ -107,14 +73,14 @@ export class TerrainSystem {
 
     // Generate heightmap using improved fractal noise
     for (let x = 0; x < this.width; x++) {
-      // Primary fractal noise (large scale features)
-      const primaryNoise = this.fractalNoise(x, seed, 6);
+      // Primary fractal noise (large scale features) - shape-dependent
+      const primaryNoise = NoiseGenerator.fractalNoise(x, seed, shape);
       
-      // Secondary fractal noise with different seed (medium scale features)
-      const secondaryNoise = this.fractalNoise(x, seed * 1.37 + 5000, 4);
+      // Secondary fractal noise with different seed (medium scale features) - shape-dependent
+      const secondaryNoise = NoiseGenerator.fractalNoise(x, seed * 1.37 + 5000, shape, shape === TerrainShape.HILLS ? 2 : 4);
       
       // Tertiary noise (small details)
-      const tertiaryNoise = this.fractalNoise(x, seed * 2.71 + 10000, 3);
+      const tertiaryNoise = NoiseGenerator.fractalNoise(x, seed * 2.71 + 10000, shape, 2);
       
       // Add some sine waves for smooth hills (but with varying frequencies)
       const sine1 = Math.sin((x + seed) * 0.008) * 0.15;
@@ -122,7 +88,7 @@ export class TerrainSystem {
       const sine3 = Math.sin((x + seed * 2.718) * 0.025) * 0.08;
       
       // Add local variation using seeded random
-      const localVariation = (this.seededRandom(seed + x * 0.05) - 0.5) * roughness * 0.3;
+      const localVariation = (NoiseGenerator.seededRandom(seed + x * 0.05) - 0.5) * roughness * 0.3;
       
       // Combine all noise sources with different weights
       const combinedNoise = 
@@ -201,8 +167,8 @@ export class TerrainSystem {
     for (let i = 0; i < numStars; i++) {
       // Generate star position using seeded random
       const seed = starSeed + i * 137; // Prime number for better distribution
-      const x = Math.floor(this.seededRandom(seed) * this.width);
-      const y = Math.floor(this.seededRandom(seed + 1000) * this.height * 0.6); // Only in upper 60% (sky area)
+      const x = Math.floor(NoiseGenerator.seededRandom(seed) * this.width);
+      const y = Math.floor(NoiseGenerator.seededRandom(seed + 1000) * this.height * 0.6); // Only in upper 60% (sky area)
       
       // Make sure star is above terrain
       const terrainY = this.getHeightAt(x);

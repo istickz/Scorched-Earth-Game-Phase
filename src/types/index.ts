@@ -5,7 +5,7 @@
 /**
  * Game mode type
  */
-export type GameMode = 'solo' | 'multiplayer';
+export type GameMode = 'solo' | 'multiplayer' | 'local';
 
 /**
  * Game mode constants
@@ -13,6 +13,7 @@ export type GameMode = 'solo' | 'multiplayer';
 export const GameMode = {
   Solo: 'solo' as const,
   Multiplayer: 'multiplayer' as const,
+  Local: 'local' as const,
 } as const;
 
 /**
@@ -41,6 +42,52 @@ export interface IProjectileConfig {
 }
 
 /**
+ * Terrain biome types
+ */
+export enum TerrainBiome {
+  TEMPERATE = 'temperate',
+  DESERT = 'desert',
+  ARCTIC = 'arctic',
+  VOLCANIC = 'volcanic',
+}
+
+/**
+ * Terrain shape types
+ */
+export enum TerrainShape {
+  HILLS = 'hills',
+  MOUNTAINS = 'mountains',
+}
+
+/**
+ * Weather types
+ */
+export type WeatherType = 'none' | 'rain' | 'snow';
+
+/**
+ * Time of day
+ */
+export type TimeOfDay = 'day' | 'night';
+
+/**
+ * Season
+ */
+export type Season = 'summer' | 'winter';
+
+/**
+ * Level configuration with modular system
+ */
+export interface ILevelConfig {
+  biome: TerrainBiome;
+  shape: TerrainShape;
+  weather: WeatherType;
+  roughness: number;
+  timeOfDay: TimeOfDay;
+  season: Season;
+  seed?: number; // Optional seed for terrain generation
+}
+
+/**
  * Terrain configuration interface
  */
 export interface ITerrainConfig {
@@ -50,6 +97,19 @@ export interface ITerrainConfig {
   roughness?: number;
   minHeight?: number;
   maxHeight?: number;
+  skyColor?: number;
+  groundColor?: number;
+  isNight?: boolean;
+  shape?: TerrainShape;
+}
+
+/**
+ * Biome color scheme
+ */
+export interface IBiomeColors {
+  sky: number;
+  ground: number;
+  accent?: number;
 }
 
 /**

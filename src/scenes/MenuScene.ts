@@ -1,5 +1,5 @@
 import Phaser from 'phaser';
-import { GameMode } from '@/types';
+import { GameMode, type AIDifficulty } from '@/types';
 
 interface MenuOption {
   text: string;
@@ -16,6 +16,11 @@ export class MenuScene extends Phaser.Scene {
   private cursorSprite!: Phaser.GameObjects.Sprite;
   private blinkTimer: Phaser.Time.TimerEvent | null = null;
   private menuMusic!: Phaser.Sound.BaseSound | null;
+  private isDifficultyMenu: boolean = false;
+  private difficultyOptions: MenuOption[] = [];
+  private difficultyTexts: Phaser.GameObjects.Text[] = [];
+  private difficultyMenuContainer: Phaser.GameObjects.Container | null = null;
+  private mainMenuContainer: Phaser.GameObjects.Container | null = null;
 
   constructor() {
     super({ key: 'MenuScene' });
@@ -38,9 +43,18 @@ export class MenuScene extends Phaser.Scene {
 
     // Define menu options
     this.menuOptions = [
-      { text: 'SINGLEPLAYER', callback: () => this.startGame(GameMode.Solo) },
+      { text: 'SINGLEPLAYER', callback: () => this.showDifficultyMenu() },
+      { text: 'LOCAL MULTIPLAYER', callback: () => this.startLocalMultiplayer() },
       { text: 'P2P MULTIPLAYER', callback: () => this.startMultiplayer() },
       { text: 'QUIT', callback: () => this.quitGame() },
+    ];
+
+    // Define difficulty options (BACK first, then difficulties - console game style)
+    this.difficultyOptions = [
+      { text: 'BACK', callback: () => this.hideDifficultyMenu() },
+      { text: 'EASY', callback: () => this.startGame(GameMode.Solo, 'easy') },
+      { text: 'MEDIUM', callback: () => this.startGame(GameMode.Solo, 'medium') },
+      { text: 'HARD', callback: () => this.startGame(GameMode.Solo, 'hard') },
     ];
 
     // Create menu with NES style
@@ -214,6 +228,7 @@ export class MenuScene extends Phaser.Scene {
 
     // Create menu box with NES-style border
     const boxContainer = this.add.container(x, y);
+    this.mainMenuContainer = boxContainer; // Save reference to hide/show later
 
     // Background box
     const bgGraphics = this.add.graphics();
@@ -253,6 +268,25 @@ export class MenuScene extends Phaser.Scene {
         stroke: '#000000',
         strokeThickness: 2,
       }).setOrigin(0, 0.5);
+
+      // Make text interactive for mouse clicks
+      menuText.setInteractive({ useHandCursor: true });
+      
+      // Handle mouse hover
+      menuText.on('pointerover', () => {
+        this.selectedIndex = index;
+        this.updateMenuDisplay();
+        try {
+          this.sound.play('menu-move', { volume: 0.3 });
+        } catch {
+          // Sound not available, ignore
+        }
+      });
+      
+      // Handle mouse click
+      menuText.on('pointerdown', () => {
+        this.selectOption();
+      });
 
       boxContainer.add([textShadow, menuText]);
       this.menuTexts.push(menuText);
@@ -294,8 +328,11 @@ export class MenuScene extends Phaser.Scene {
     const nesYellow = '#f1c40f';
     const nesRed = '#e74c3c';
 
+    const currentOptions = this.isDifficultyMenu ? this.difficultyOptions : this.menuOptions;
+    const currentTexts = this.isDifficultyMenu ? this.difficultyTexts : this.menuTexts;
+
     const boxWidth = 450;
-    const boxHeight = this.menuOptions.length * 50 + 40;
+    const boxHeight = currentOptions.length * 50 + 40;
     const padding = 20;
     const menuX = this.cameras.main.width / 2;
     const menuY = this.cameras.main.height / 2 + 80;
@@ -305,10 +342,11 @@ export class MenuScene extends Phaser.Scene {
     // Update cursor position
     if ((this as any).cursorGraphics) {
       (this as any).cursorGraphics.setPosition(cursorX, baseCursorY + this.selectedIndex * 50);
+      (this as any).cursorGraphics.setVisible(true);
     }
 
     // Update text colors
-    this.menuTexts.forEach((text, index) => {
+    currentTexts.forEach((text, index) => {
       if (index === this.selectedIndex) {
         // Selected option: yellow with red outline
         text.setColor(nesYellow);
@@ -350,7 +388,8 @@ export class MenuScene extends Phaser.Scene {
    * Move selection up
    */
   private moveSelectionUp(): void {
-    this.selectedIndex = (this.selectedIndex - 1 + this.menuOptions.length) % this.menuOptions.length;
+    const currentOptions = this.isDifficultyMenu ? this.difficultyOptions : this.menuOptions;
+    this.selectedIndex = (this.selectedIndex - 1 + currentOptions.length) % currentOptions.length;
     this.updateMenuDisplay();
     // Play sound effect if available
     try {
@@ -364,7 +403,8 @@ export class MenuScene extends Phaser.Scene {
    * Move selection down
    */
   private moveSelectionDown(): void {
-    this.selectedIndex = (this.selectedIndex + 1) % this.menuOptions.length;
+    const currentOptions = this.isDifficultyMenu ? this.difficultyOptions : this.menuOptions;
+    this.selectedIndex = (this.selectedIndex + 1) % currentOptions.length;
     this.updateMenuDisplay();
     // Play sound effect if available
     try {
@@ -378,27 +418,168 @@ export class MenuScene extends Phaser.Scene {
    * Select current option
    */
   private selectOption(): void {
-    if (this.menuOptions[this.selectedIndex]) {
+    const currentOptions = this.isDifficultyMenu ? this.difficultyOptions : this.menuOptions;
+    
+    if (currentOptions[this.selectedIndex]) {
       // Play sound effect if available
       try {
         this.sound.play('menu-select', { volume: 0.5 });
       } catch {
         // Sound not available, ignore
       }
-      this.menuOptions[this.selectedIndex].callback();
+      currentOptions[this.selectedIndex].callback();
     }
   }
 
   /**
-   * Start the game with the selected mode
+   * Show difficulty selection menu
    */
-  private startGame(mode: GameMode): void {
+  private showDifficultyMenu(): void {
+    this.isDifficultyMenu = true;
+    this.selectedIndex = 2; // Default to MEDIUM (index 2 after BACK moved to first)
+    
+    // Clean up any existing difficulty menu
+    if (this.difficultyMenuContainer) {
+      this.difficultyMenuContainer.destroy();
+      this.difficultyMenuContainer = null;
+    }
+    this.difficultyTexts = [];
+    
+    // Hide main menu container (includes background and all texts)
+    if (this.mainMenuContainer) {
+      this.mainMenuContainer.setVisible(false);
+    }
+    if ((this as any).cursorGraphics) {
+      (this as any).cursorGraphics.setVisible(false);
+    }
+    
+    // Create difficulty menu
+    const width = this.cameras.main.width;
+    const height = this.cameras.main.height;
+    const nesWhite = '#ffffff';
+    this.createDifficultyMenu(width / 2, height / 2 + 80, nesWhite);
+    
+    this.updateMenuDisplay();
+  }
+
+  /**
+   * Hide difficulty menu and return to main menu
+   */
+  private hideDifficultyMenu(): void {
+    this.isDifficultyMenu = false;
+    this.selectedIndex = 0;
+    
+    // Destroy difficulty menu container (includes all texts and graphics)
+    if (this.difficultyMenuContainer) {
+      this.difficultyMenuContainer.destroy();
+      this.difficultyMenuContainer = null;
+    }
+    
+    // Clear difficulty texts array
+    this.difficultyTexts = [];
+    
+    // Show main menu container (includes background and all texts)
+    if (this.mainMenuContainer) {
+      this.mainMenuContainer.setVisible(true);
+    }
+    
+    this.updateMenuDisplay();
+  }
+
+  /**
+   * Create difficulty selection menu
+   */
+  private createDifficultyMenu(x: number, y: number, white: string): void {
+    const boxWidth = 450;
+    const boxHeight = this.difficultyOptions.length * 50 + 40;
+    const padding = 20;
+
+    // Create menu box with NES-style border
+    const boxContainer = this.add.container(x, y);
+    this.difficultyMenuContainer = boxContainer;
+
+    // Background box
+    const bgGraphics = this.add.graphics();
+    bgGraphics.fillStyle(0x34495e, 0.8);
+    bgGraphics.fillRoundedRect(-boxWidth / 2, -boxHeight / 2, boxWidth, boxHeight, 8);
+    bgGraphics.lineStyle(3, 0x3498db);
+    bgGraphics.strokeRoundedRect(-boxWidth / 2, -boxHeight / 2, boxWidth, boxHeight, 8);
+    
+    // Inner border
+    bgGraphics.lineStyle(1, 0x5dade2);
+    bgGraphics.strokeRoundedRect(-boxWidth / 2 + 4, -boxHeight / 2 + 4, boxWidth - 8, boxHeight - 8, 6);
+
+    boxContainer.add(bgGraphics);
+
+    // Title text
+    const titleText = this.add.text(0, -boxHeight / 2 - 30, 'SELECT DIFFICULTY', {
+      fontSize: '20px',
+      color: white,
+      fontFamily: 'Arial Black, sans-serif',
+      fontStyle: 'bold',
+      stroke: '#000000',
+      strokeThickness: 2,
+    }).setOrigin(0.5, 0.5);
+    boxContainer.add(titleText);
+
+    // Create menu option texts (left-aligned)
+    const textOffsetX = -boxWidth / 2 + padding + 60;
+    
+    this.difficultyOptions.forEach((option, index) => {
+      const optionY = -boxHeight / 2 + 50 + index * 50;
+      
+      // Text shadow for depth (left-aligned)
+      const textShadow = this.add.text(textOffsetX, optionY + 2, option.text, {
+        fontSize: '24px',
+        color: '#000000',
+        fontFamily: 'Arial Black, sans-serif',
+        fontStyle: 'bold',
+      }).setOrigin(0, 0.5);
+
+      const menuText = this.add.text(textOffsetX, optionY, option.text, {
+        fontSize: '24px',
+        color: white,
+        fontFamily: 'Arial Black, sans-serif',
+        fontStyle: 'bold',
+        stroke: '#000000',
+        strokeThickness: 2,
+      }).setOrigin(0, 0.5);
+
+      // Make text interactive for mouse clicks
+      menuText.setInteractive({ useHandCursor: true });
+      
+      // Handle mouse hover
+      menuText.on('pointerover', () => {
+        this.selectedIndex = index;
+        this.updateMenuDisplay();
+        try {
+          this.sound.play('menu-move', { volume: 0.3 });
+        } catch {
+          // Sound not available, ignore
+        }
+      });
+      
+      // Handle mouse click
+      menuText.on('pointerdown', () => {
+        this.selectOption();
+      });
+
+      boxContainer.add([textShadow, menuText]);
+      this.difficultyTexts.push(menuText);
+    });
+  }
+
+  /**
+   * Start the game with the selected mode and difficulty
+   */
+  private startGame(mode: GameMode, difficulty: AIDifficulty = 'medium'): void {
     // Stop menu music before starting game
     this.stopMenuMusic();
     
-    // Pass game mode to GameScene
+    // Pass game mode and difficulty to GameScene
     this.scene.start('GameScene', {
       gameMode: mode,
+      aiDifficulty: difficulty,
     });
   }
 
@@ -410,6 +591,14 @@ export class MenuScene extends Phaser.Scene {
     this.stopMenuMusic();
     
     this.scene.start('MultiplayerLobbyScene');
+  }
+
+  /**
+   * Start local multiplayer (2 players on same computer)
+   */
+  private startLocalMultiplayer(): void {
+    // Don't stop music - let LevelSelectScene continue playing it
+    this.scene.start('LevelSelectScene');
   }
 
   /**

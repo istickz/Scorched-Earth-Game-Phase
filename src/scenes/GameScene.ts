@@ -1,5 +1,5 @@
 import Phaser from 'phaser';
-import { GameMode, type ITankConfig } from '@/types';
+import { GameMode, type ITankConfig, type AIDifficulty, type ILevelConfig, TerrainBiome, TerrainShape } from '@/types';
 import { TerrainSystem } from '@/systems/TerrainSystem';
 import { Tank } from '@/entities/Tank';
 import { Projectile } from '@/entities/Projectile';
@@ -8,6 +8,8 @@ import { AISystem } from '@/systems/AISystem';
 import { WebRTCManager } from '@/network/WebRTCManager';
 import { NetworkSync } from '@/network/NetworkSync';
 import { AudioSystem } from '@/systems/AudioSystem';
+import { BiomeSystem } from '@/systems/BiomeSystem';
+import { WeatherSystem } from '@/systems/WeatherSystem';
 
 /**
  * Main game scene
@@ -24,12 +26,14 @@ export class GameScene extends Phaser.Scene {
   private canFire: boolean = true;
   private waitingForProjectile: boolean = false;
   private isSwitchingTurn: boolean = false;
+  private gameOver: boolean = false;
   private aiSystem!: AISystem;
   private lastExplosionHit: { x: number; y: number } | null = null;
   private lastShotData: Map<string, { angle: number; power: number; ownerId: string }> = new Map();
   private webrtcManager?: WebRTCManager;
   private networkSync?: NetworkSync;
   private audioSystem!: AudioSystem;
+  private _weatherSystem?: WeatherSystem; // Weather effects system
   // Trajectory tracking system
   private activeTrajectories: Map<Projectile, { x: number; y: number }[]> = new Map();
   private completedTrajectories: { x: number; y: number }[][] = [];
@@ -40,9 +44,33 @@ export class GameScene extends Phaser.Scene {
     super({ key: 'GameScene' });
   }
 
-  init(data: { gameMode?: GameMode; webrtcManager?: WebRTCManager }): void {
+  private aiDifficulty: AIDifficulty = 'medium';
+
+  init(data: { 
+    gameMode?: GameMode; 
+    webrtcManager?: WebRTCManager; 
+    aiDifficulty?: AIDifficulty;
+    levelConfig?: ILevelConfig;
+  }): void {
     this.gameMode = data?.gameMode || GameMode.Solo;
     this.webrtcManager = data?.webrtcManager;
+    this.aiDifficulty = data?.aiDifficulty || 'medium';
+    
+    // Сохраняем конфигурацию уровня для использования в create()
+    (this as any).levelConfig = data?.levelConfig;
+    
+    // Сбрасываем все игровые состояния при инициализации/перезапуске
+    this.gameOver = false;
+    this.tanks = [];
+    this.activeProjectiles = [];
+    this.activeTrajectories = new Map();
+    this.completedTrajectories = [];
+    this.currentPlayerIndex = 0;
+    this.canFire = true;
+    this.waitingForProjectile = false;
+    this.isSwitchingTurn = false;
+    this.lastExplosionHit = null;
+    this.lastShotData = new Map();
   }
 
   create(): void {
@@ -50,21 +78,38 @@ export class GameScene extends Phaser.Scene {
     const height = this.cameras.main.height;
 
     if (this.matter) {
-      this.matter.world.setBounds(0, 0, width, height);
+      // Не устанавливаем setBounds() - это создает физические стены по краям экрана
+      // Вместо этого снаряды удаляются вручную при выходе за границы (см. update())
       if (this.matter.world.engine) {
         this.matter.world.engine.timing.timeScale = 12.0;
       }
     }
 
-    const terrainSeed = Math.random() * 1000000;
+    // Use provided config or create random one
+    const levelConfig: ILevelConfig = (this as any).levelConfig || this.createRandomLevelConfig();
+    
+    // Use seed from config if provided, otherwise generate random
+    const terrainSeed = levelConfig.seed !== undefined ? levelConfig.seed : Math.random() * 1000000;
+    
+    console.log(`🎨 Level: ${BiomeSystem.getBiomeIcon(levelConfig.biome)} ${BiomeSystem.getBiomeName(levelConfig.biome)} - ${levelConfig.shape} - ${levelConfig.weather} - ${levelConfig.timeOfDay} - ${levelConfig.season}`);
+    
+    // Get colors for biome
+    const colors = BiomeSystem.getColors(levelConfig.biome, levelConfig.season, levelConfig.timeOfDay);
+    
+    // Apply weather tint to sky
+    const skyColor = WeatherSystem.applySkyWeatherTint(colors.sky, levelConfig.weather);
     
     this.terrainSystem = new TerrainSystem(this, {
       width,
       height,
       minHeight: height * 0.45,
       maxHeight: height * 0.85,
-      roughness: 0.2,
+      roughness: levelConfig.roughness,
       seed: terrainSeed,
+      skyColor: skyColor,
+      groundColor: colors.ground,
+      isNight: levelConfig.timeOfDay === 'night',
+      shape: levelConfig.shape,
     });
 
     this.explosionSystem = new ExplosionSystem(this, this.terrainSystem);
@@ -73,8 +118,13 @@ export class GameScene extends Phaser.Scene {
     this.audioSystem.resume();
     (this as any).audioSystem = this.audioSystem;
 
+    // Create weather effects
+    if (levelConfig.weather !== 'none') {
+      this._weatherSystem = new WeatherSystem(this, levelConfig.weather, levelConfig.timeOfDay);
+    }
+
     if (this.gameMode === GameMode.Solo) {
-      this.aiSystem = new AISystem(this, this.terrainSystem);
+      this.aiSystem = new AISystem(this, this.terrainSystem, this.aiDifficulty);
     }
 
     if (this.gameMode === GameMode.Multiplayer && this.webrtcManager) {
@@ -119,7 +169,7 @@ export class GameScene extends Phaser.Scene {
       angle: 180,
       power: 50,
       color: 0x654321,
-      isPlayer: this.gameMode === GameMode.Multiplayer,
+      isPlayer: this.gameMode === GameMode.Multiplayer || this.gameMode === GameMode.Local,
     };
 
     const tank1 = new Tank(this, tank1Config);
@@ -146,11 +196,15 @@ export class GameScene extends Phaser.Scene {
       padding: { x: 10, y: 5 },
     });
 
+    // Создаем графику для предпросмотра траектории
     this.trajectoryPreview = this.add.graphics();
     this.trajectoryPreview.setDepth(1);
+    this.trajectoryPreview.clear(); // Очищаем при создании
 
+    // Создаем графику для отображения траекторий выстрелов
     this.trajectoryGraphics = this.add.graphics();
     this.trajectoryGraphics.setDepth(4);
+    this.trajectoryGraphics.clear(); // Очищаем при создании
 
     this.updateUI();
   }
@@ -161,7 +215,13 @@ export class GameScene extends Phaser.Scene {
       return;
     }
 
-    const modeText = this.gameMode === GameMode.Solo ? 'Singleplayer' : 'P2P Multiplayer';
+    let modeText = 'Singleplayer';
+    if (this.gameMode === GameMode.Multiplayer) {
+      modeText = 'P2P Multiplayer';
+    } else if (this.gameMode === GameMode.Local) {
+      modeText = 'Local Multiplayer';
+    }
+    
     const isAITurn = this.gameMode === GameMode.Solo && this.currentPlayerIndex === 1;
     const playerText = isAITurn ? 'AI Thinking...' : `Player ${this.currentPlayerIndex + 1}`;
     const angleText = `Angle: ${currentTank.getTurretAngle().toFixed(0)}°`;
@@ -233,6 +293,10 @@ export class GameScene extends Phaser.Scene {
     }
 
     this.input.keyboard?.on('keydown-LEFT', () => {
+      if (this.gameOver) {
+        return; // Игра окончена, управление заблокировано
+      }
+      // In P2P multiplayer, only player 1 can control. In local, both players control.
       if (this.gameMode === GameMode.Multiplayer && this.currentPlayerIndex !== 0) {
         return;
       }
@@ -248,6 +312,10 @@ export class GameScene extends Phaser.Scene {
     });
 
     this.input.keyboard?.on('keydown-RIGHT', () => {
+      if (this.gameOver) {
+        return; // Игра окончена, управление заблокировано
+      }
+      // In P2P multiplayer, only player 1 can control. In local, both players control.
       if (this.gameMode === GameMode.Multiplayer && this.currentPlayerIndex !== 0) {
         return;
       }
@@ -263,6 +331,10 @@ export class GameScene extends Phaser.Scene {
     });
 
     this.input.keyboard?.on('keydown-UP', () => {
+      if (this.gameOver) {
+        return; // Игра окончена, управление заблокировано
+      }
+      // In P2P multiplayer, only player 1 can control. In local, both players control.
       if (this.gameMode === GameMode.Multiplayer && this.currentPlayerIndex !== 0) {
         return;
       }
@@ -278,6 +350,10 @@ export class GameScene extends Phaser.Scene {
     });
 
     this.input.keyboard?.on('keydown-DOWN', () => {
+      if (this.gameOver) {
+        return; // Игра окончена, управление заблокировано
+      }
+      // In P2P multiplayer, only player 1 can control. In local, both players control.
       if (this.gameMode === GameMode.Multiplayer && this.currentPlayerIndex !== 0) {
         return;
       }
@@ -293,6 +369,10 @@ export class GameScene extends Phaser.Scene {
     });
 
     this.input.keyboard?.on('keydown-SPACE', () => {
+      if (this.gameOver) {
+        return; // Игра окончена, управление заблокировано
+      }
+      // In P2P multiplayer, only player 1 can control. In local, both players control.
       if (this.gameMode === GameMode.Multiplayer && this.currentPlayerIndex !== 0) {
         return;
       }
@@ -338,6 +418,10 @@ export class GameScene extends Phaser.Scene {
   }
 
   private fireProjectile(): void {
+    if (this.gameOver) {
+      return; // Игра окончена, стрельба невозможна
+    }
+    
     if (!this.canFire || this.waitingForProjectile) {
       return;
     }
@@ -379,6 +463,15 @@ export class GameScene extends Phaser.Scene {
   private handleExplosion(data: { x: number; y: number; radius: number; damage: number; ownerId?: string }): void {
     this.lastExplosionHit = { x: data.x, y: data.y };
 
+    // Сохраняем позиции танков ДО нанесения урона (на случай если они будут уничтожены)
+    const tankPositions = new Map<Tank, { x: number; y: number; isAlive: boolean }>();
+    this.tanks.forEach((tank) => {
+      if (tank.isAlive()) {
+        tankPositions.set(tank, { x: tank.x, y: tank.y, isAlive: true });
+      }
+    });
+
+    // Наносим урон танкам
     this.tanks.forEach((tank) => {
       if (!tank.isAlive()) {
         return;
@@ -398,18 +491,21 @@ export class GameScene extends Phaser.Scene {
       }
     });
 
+    // Записываем результат выстрела для AI (используем сохраненные позиции)
     if (this.gameMode === GameMode.Solo && this.aiSystem && this.lastExplosionHit && data.ownerId === 'tank-1') {
       const shotData = this.lastShotData.get(data.ownerId);
       
       if (shotData) {
         const aiTank = this.tanks[1];
         const playerTank = this.tanks[0];
-        if (aiTank && playerTank) {
+        const playerTankPos = tankPositions.get(playerTank);
+        
+        if (aiTank && playerTank && playerTankPos) {
           const distance = Phaser.Math.Distance.Between(
             this.lastExplosionHit.x,
             this.lastExplosionHit.y,
-            playerTank.x,
-            playerTank.y
+            playerTankPos.x,
+            playerTankPos.y
           );
 
           this.aiSystem.recordShotResult({
@@ -417,8 +513,8 @@ export class GameScene extends Phaser.Scene {
             power: shotData.power,
             hitX: this.lastExplosionHit.x,
             hitY: this.lastExplosionHit.y,
-            targetX: playerTank.x,
-            targetY: playerTank.y,
+            targetX: playerTankPos.x,
+            targetY: playerTankPos.y,
             distance: distance,
           });
         }
@@ -436,6 +532,10 @@ export class GameScene extends Phaser.Scene {
   }
 
   private switchTurn(): void {
+    if (this.gameOver) {
+      return; // Игра окончена, смена хода невозможна
+    }
+    
     this.isSwitchingTurn = false;
     this.waitingForProjectile = false;
     this.canFire = true;
@@ -451,12 +551,50 @@ export class GameScene extends Phaser.Scene {
     this.currentPlayerIndex = nextIndex;
     this.updateUI();
 
+    // Show player indicator for local multiplayer
+    if (this.gameMode === GameMode.Local) {
+      this.showPlayerTurnIndicator();
+    }
+
     if (this.gameMode === GameMode.Solo && this.currentPlayerIndex === 1 && this.aiSystem) {
       this.handleAITurn();
     }
   }
 
+  /**
+   * Show turn indicator for local multiplayer
+   */
+  private showPlayerTurnIndicator(): void {
+    const width = this.cameras.main.width;
+    const height = this.cameras.main.height;
+
+    const playerName = `PLAYER ${this.currentPlayerIndex + 1}`;
+    const turnText = this.add.text(width / 2, height / 2, `${playerName}'S TURN`, {
+      fontSize: '64px',
+      color: '#ffffff',
+      fontStyle: 'bold',
+      stroke: '#000000',
+      strokeThickness: 8,
+    }).setOrigin(0.5);
+
+    // Fade out animation
+    this.tweens.add({
+      targets: turnText,
+      alpha: 0,
+      scale: 1.2,
+      duration: 1500,
+      ease: 'Power2',
+      onComplete: () => {
+        turnText.destroy();
+      },
+    });
+  }
+
   private handleAITurn(): void {
+    if (this.gameOver) {
+      return; // Игра окончена, AI не может ходить
+    }
+    
     const aiTank = this.tanks[1];
     const playerTank = this.tanks[0];
 
@@ -471,6 +609,10 @@ export class GameScene extends Phaser.Scene {
     this.updateUI();
 
     this.aiSystem.getAIDecision(aiTank, playerTank, (angle: number, power: number) => {
+      if (this.gameOver) {
+        return; // Игра окончена в процессе принятия решения AI
+      }
+      
       if (this.currentPlayerIndex !== 1) {
         this.currentPlayerIndex = 1;
       }
@@ -487,12 +629,18 @@ export class GameScene extends Phaser.Scene {
   }
 
   private checkGameOver(): void {
+    if (this.gameOver) {
+      return; // Уже обработали окончание игры
+    }
+
     const aliveTanks = this.tanks.filter((tank) => tank.isAlive());
 
     if (aliveTanks.length === 1) {
+      this.gameOver = true;
       const winnerIndex = this.tanks.findIndex((tank) => tank.isAlive());
       this.showGameOver(`Player ${winnerIndex + 1} Wins!`);
     } else if (aliveTanks.length === 0) {
+      this.gameOver = true;
       this.showGameOver('Draw!');
     }
   }
@@ -518,6 +666,11 @@ export class GameScene extends Phaser.Scene {
   }
 
   update(): void {
+    // Останавливаем обновления после окончания игры
+    if (this.gameOver) {
+      return;
+    }
+
     this.tanks.forEach((tank) => {
       if (tank.isAlive()) {
         tank.checkGroundSupport(this.terrainSystem);
@@ -729,5 +882,25 @@ export class GameScene extends Phaser.Scene {
     }
 
     this.trajectoryGraphics.strokePath();
+  }
+
+  /**
+   * Create random level configuration for solo and P2P modes
+   */
+  private createRandomLevelConfig(): ILevelConfig {
+    const biomes = [TerrainBiome.TEMPERATE, TerrainBiome.DESERT, TerrainBiome.ARCTIC, TerrainBiome.VOLCANIC];
+    const shapes = [TerrainShape.HILLS, TerrainShape.MOUNTAINS];
+    const weathers: Array<'none' | 'rain' | 'snow'> = ['none', 'rain', 'snow'];
+    const times: Array<'day' | 'night'> = ['day', 'night'];
+    const seasons: Array<'summer' | 'winter'> = ['summer', 'winter'];
+
+    return {
+      biome: biomes[Math.floor(Math.random() * biomes.length)],
+      shape: shapes[Math.floor(Math.random() * shapes.length)],
+      weather: weathers[Math.floor(Math.random() * weathers.length)],
+      roughness: 0.10 + Math.random() * 0.40, // 0.10 to 0.50
+      timeOfDay: times[Math.floor(Math.random() * times.length)],
+      season: seasons[Math.floor(Math.random() * seasons.length)],
+    };
   }
 }
