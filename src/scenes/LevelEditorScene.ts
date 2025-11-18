@@ -1,5 +1,5 @@
 import Phaser from 'phaser';
-import { GameMode, TerrainBiome, TerrainShape, type ILevelConfig, type WeatherType, type TimeOfDay, type Season } from '@/types';
+import { GameMode, TerrainBiome, TerrainShape, type ILevelConfig, type WeatherType, type TimeOfDay, type Season, type IEnvironmentEffects } from '@/types';
 import { BiomeSystem } from '@/systems/BiomeSystem';
 import { NoiseGenerator } from '@/utils/NoiseGenerator';
 import { WeatherSystem } from '@/systems/WeatherSystem';
@@ -49,7 +49,6 @@ export class LevelEditorScene extends Phaser.Scene {
     windY?: { thumb: Phaser.GameObjects.Arc; valueText: Phaser.GameObjects.BitmapText };
     gravity?: { thumb: Phaser.GameObjects.Arc; valueText: Phaser.GameObjects.BitmapText };
     airDensity?: { thumb: Phaser.GameObjects.Arc; valueText: Phaser.GameObjects.BitmapText };
-    turbulence?: { thumb: Phaser.GameObjects.Arc; valueText: Phaser.GameObjects.BitmapText };
   } = {};
 
   constructor() {
@@ -562,7 +561,7 @@ export class LevelEditorScene extends Phaser.Scene {
     const currentEffects = this.levelConfig.environmentEffects || defaultEffects;
 
     // Вычисляем максимальную ширину label для выравнивания слайдеров
-    const labels = ['Wind X:', 'Wind Y:', 'Gravity:', 'Air Density:', 'Turbulence:'];
+    const labels = ['Wind X:', 'Wind Y:', 'Gravity:', 'Air Density:'];
     let maxLabelWidth = 0;
     labels.forEach(label => {
       const tempText = this.add.bitmapText(0, 0, 'pixel-font', label, NESTheme.defaultFontSize);
@@ -637,19 +636,6 @@ export class LevelEditorScene extends Phaser.Scene {
       panel.container,
       sliderEndX
     );
-
-    this.createEnvironmentSlider(
-      'Turbulence:',
-      inputX,
-      startY + spacing * 4,
-      currentEffects.turbulence ?? defaultEffects.turbulence,
-      0,
-      1,
-      (v) => this.updateEnvironmentEffect('turbulence', v, defaultEffects),
-      'turbulence',
-      panel.container,
-      sliderEndX
-    );
   }
 
   /**
@@ -678,7 +664,7 @@ export class LevelEditorScene extends Phaser.Scene {
     min: number,
     max: number,
     onChange: (value: number) => void,
-    key: 'windX' | 'windY' | 'gravity' | 'airDensity' | 'turbulence',
+    key: 'windX' | 'windY' | 'gravity' | 'airDensity',
     parentContainer: Phaser.GameObjects.Container,
     sliderEndX?: number
   ): void {
@@ -1188,17 +1174,66 @@ export class LevelEditorScene extends Phaser.Scene {
   }
 
   /**
+   * Get current values from environment sliders
+   */
+  private getCurrentEnvironmentEffects(): IEnvironmentEffects {
+    // Get default effects as fallback
+    const defaultEffects = EnvironmentSystem.getEffects(
+      this.levelConfig.biome,
+      this.levelConfig.weather,
+      this.levelConfig.timeOfDay
+    );
+
+    // Get current values from sliders by parsing their valueText
+    const effects: IEnvironmentEffects = {
+      windX: defaultEffects.windX,
+      windY: defaultEffects.windY,
+      gravity: defaultEffects.gravity,
+      airDensity: defaultEffects.airDensity,
+    };
+
+    // Parse values from slider text displays
+    if (this.environmentSliders.windX?.valueText) {
+      effects.windX = parseFloat(this.environmentSliders.windX.valueText.text) || defaultEffects.windX;
+    }
+    if (this.environmentSliders.windY?.valueText) {
+      effects.windY = parseFloat(this.environmentSliders.windY.valueText.text) || defaultEffects.windY;
+    }
+    if (this.environmentSliders.gravity?.valueText) {
+      effects.gravity = parseFloat(this.environmentSliders.gravity.valueText.text) || defaultEffects.gravity;
+    }
+    if (this.environmentSliders.airDensity?.valueText) {
+      effects.airDensity = parseFloat(this.environmentSliders.airDensity.valueText.text) || defaultEffects.airDensity;
+    }
+
+    return effects;
+  }
+
+  /**
    * Start game with configured level
    */
   private startGame(): void {
     // Stop menu music before starting game
     this.stopMenuMusic();
     
+    // Always get current values from sliders
+    const environmentEffects = this.getCurrentEnvironmentEffects();
+    
     // Add the preview seed to level config so the game uses the same terrain
     const configWithSeed: ILevelConfig = {
       ...this.levelConfig,
       seed: this.previewSeed,
+      environmentEffects, // Always include current slider values
     };
+
+    // Log what we're passing to GameScene
+    console.log('🚀 Starting game with config:', {
+      gameMode: GameMode.Local,
+      levelConfig: {
+        ...configWithSeed,
+      },
+    });
+    console.log('📦 Full levelConfig object:', JSON.stringify(configWithSeed, null, 2));
 
     this.scene.start('GameScene', {
       gameMode: GameMode.Local,

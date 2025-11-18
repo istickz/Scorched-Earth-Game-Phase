@@ -110,8 +110,6 @@ export class GameScene extends Phaser.Scene {
     // Use seed from config if provided, otherwise generate random
     const terrainSeed = levelConfig.seed !== undefined ? levelConfig.seed : Math.random() * 1000000;
     
-    console.log(`🎨 Level: ${BiomeSystem.getBiomeIcon(levelConfig.biome)} ${BiomeSystem.getBiomeName(levelConfig.biome)} - ${levelConfig.shape} - ${levelConfig.weather} - ${levelConfig.timeOfDay} - ${levelConfig.season}`);
-    
     // Initialize environment effects based on biome, weather, and time
     // Use custom values from levelConfig if provided, otherwise use defaults
     const defaultEffects = EnvironmentSystem.getEffects(
@@ -121,7 +119,7 @@ export class GameScene extends Phaser.Scene {
     );
     // Merge defaults with custom effects (custom effects override defaults)
     // This allows levels 11+ to override windX while keeping biome/weather effects
-    this.environmentEffects = levelConfig.environmentEffects 
+    this.environmentEffects = levelConfig.environmentEffects
       ? { ...defaultEffects, ...levelConfig.environmentEffects }
       : { ...defaultEffects };
 
@@ -130,7 +128,8 @@ export class GameScene extends Phaser.Scene {
     this.environmentEffects.windX += windVar.windX;
     this.environmentEffects.windY += windVar.windY;
 
-    console.log('🌪️ Environment:', EnvironmentSystem.getEnvironmentDescription(this.environmentEffects));
+    // Log level configuration
+    console.log('🎨 Level Configuration:', JSON.stringify(levelConfig, null, 2));
     
     // Get colors for biome
     const colors = BiomeSystem.getColors(levelConfig.biome, levelConfig.season, levelConfig.timeOfDay);

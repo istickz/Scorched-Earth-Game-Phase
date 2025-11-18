@@ -2,7 +2,7 @@ import { TerrainBiome, type IEnvironmentEffects, type WeatherType, type TimeOfDa
 
 /**
  * System for managing environmental physical effects
- * Controls wind, gravity, air density, and turbulence based on biome, weather, and time
+ * Controls wind, gravity, and air density based on biome, weather, and time
  */
 export class EnvironmentSystem {
   /**
@@ -18,7 +18,6 @@ export class EnvironmentSystem {
       windY: 0,
       gravity: 1.0,
       airDensity: 1.0,
-      turbulence: 0,
     };
 
     // BIOME affects gravity and air density
@@ -36,7 +35,6 @@ export class EnvironmentSystem {
       case TerrainBiome.VOLCANIC:
         effects.gravity = 1.2; // increased gravity (heavy planet?)
         effects.airDensity = 0.6; // thin air from heat
-        // effects.turbulence = 0.3; // turbulence from hot air
         break;
 
       case TerrainBiome.TEMPERATE:
@@ -44,17 +42,15 @@ export class EnvironmentSystem {
         break;
     }
 
-    // WEATHER affects wind and turbulence
+    // WEATHER affects wind
     switch (weather) {
       case 'rain':
         effects.windX += 0.3;
-        // effects.turbulence += 0.2;
         effects.airDensity += 0.1; // humid air is denser
         break;
 
       case 'snow':
         effects.windX += 0.4;
-        // effects.turbulence += 0.15;
         effects.airDensity += 0.15;
         break;
 
@@ -97,12 +93,6 @@ export class EnvironmentSystem {
       parts.push('Updrafts ↑');
     } else if (effects.windY > 0.1) {
       parts.push('Downdrafts ↓');
-    }
-
-    if (effects.turbulence > 0.2) {
-      parts.push('High Turbulence');
-    } else if (effects.turbulence > 0.1) {
-      parts.push('Turbulence');
     }
 
     if (effects.gravity > 1.1) {

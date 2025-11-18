@@ -129,7 +129,7 @@ export const SINGLEPLAYER_LEVELS: ILevelConfig[] = [
     seed: 111234,
     environmentEffects: {
       windX: 1.0,
-      // Other effects (windY, gravity, airDensity, turbulence) will use defaults from EnvironmentSystem
+      // Other effects (windY, gravity, airDensity) will use defaults from EnvironmentSystem
     },
   },
 

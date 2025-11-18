@@ -88,7 +88,7 @@ export class TerrainSystem {
       const sine3 = Math.sin((x + seed * 2.718) * 0.025) * 0.08;
       
       // Add local variation using seeded random
-      const localVariation = (NoiseGenerator.seededRandom(seed + x * 0.05) - 0.5) * roughness * 0.3;
+      const localVariation = (NoiseGenerator.seededRandom(seed + x * 0.05) - 0.5) * 0.3;
       
       // Combine all noise sources with different weights
       const combinedNoise = 
@@ -102,7 +102,13 @@ export class TerrainSystem {
 
       // Normalize to 0-1 range
       const normalizedHeight = Phaser.Math.Clamp(combinedNoise, 0, 1);
-      const terrainY = minHeight + (maxHeight - minHeight) * normalizedHeight;
+      
+      // Apply roughness as amplitude multiplier (same logic as in LevelEditorScene)
+      // roughness 0.05-1.0, normalize to range ~0.33-6.67 (0.15 is default = 1.0x)
+      const roughnessMultiplier = roughness / 0.15;
+      const baseHeight = minHeight + (maxHeight - minHeight) * 0.5;
+      const amplitude = (maxHeight - minHeight) * 0.4;
+      const terrainY = baseHeight + (normalizedHeight - 0.5) * amplitude * roughnessMultiplier;
 
       this.terrainHeight[x] = Math.floor(terrainY);
 

@@ -38,7 +38,6 @@ export interface IEnvironmentEffects {
   windY: number;           // vertical wind force (updrafts/downdrafts)
   gravity: number;         // gravity strength (may vary by biome)
   airDensity: number;      // air density (affects drag)
-  turbulence: number;      // random turbulence strength
 }
 
 /**

@@ -34,7 +34,6 @@ export class Projectile extends Phaser.GameObjects.Sprite {
       windY: 0,
       gravity: 1.0,
       airDensity: 1.0,
-      turbulence: 0,
     };
 
     // Calculate initial velocity
@@ -79,14 +78,7 @@ export class Projectile extends Phaser.GameObjects.Sprite {
       this.velocityY -= (this.velocityY / speed) * dragForce * dt;
     }
 
-    // 4. TURBULENCE (random disturbances, like in a storm)
-    if (this.environmentEffects.turbulence > 0) {
-      const turbulence = this.environmentEffects.turbulence;
-      this.velocityX += (Math.random() - 0.5) * turbulence * dt;
-      this.velocityY += (Math.random() - 0.5) * turbulence * dt;
-    }
-
-    // 5. UPDATE POSITION
+    // 4. UPDATE POSITION
     this.x += this.velocityX * dt;
     this.y += this.velocityY * dt;
 
