@@ -72,17 +72,17 @@ export class AudioSystem {
       oscillator.connect(gainNode);
       gainNode.connect(this.audioContext.destination);
 
-      // MS-DOS style: simple square wave tone
+      // MS-DOS style: simple square wave tone - fast whoosh sound
       oscillator.type = 'square';
-      oscillator.frequency.value = 500;
+      oscillator.frequency.value = 800; // higher pitch for faster feeling
 
       // Low volume continuous sound with simple envelope
       gainNode.gain.setValueAtTime(0, this.audioContext.currentTime);
-      gainNode.gain.linearRampToValueAtTime(0.1 * this.masterVolume, this.audioContext.currentTime + 0.02);
+      gainNode.gain.linearRampToValueAtTime(0.1 * this.masterVolume, this.audioContext.currentTime + 0.01);
       
-      // Slight frequency variation for movement effect (MS-DOS style - simple modulation)
-      oscillator.frequency.setValueAtTime(500, this.audioContext.currentTime);
-      oscillator.frequency.linearRampToValueAtTime(450, this.audioContext.currentTime + 0.3);
+      // Fast frequency drop for whoosh effect (matches fast projectile)
+      oscillator.frequency.setValueAtTime(800, this.audioContext.currentTime);
+      oscillator.frequency.linearRampToValueAtTime(400, this.audioContext.currentTime + 0.08); // 0.3 -> 0.08 (much faster)
 
       oscillator.start(this.audioContext.currentTime);
 

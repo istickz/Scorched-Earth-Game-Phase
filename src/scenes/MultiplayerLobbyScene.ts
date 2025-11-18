@@ -1,6 +1,11 @@
 import Phaser from 'phaser';
 import { WebRTCManager } from '@/network/WebRTCManager';
 import { type ConnectionState } from '@/types';
+import {
+  createTextWithShadow,
+  createNESButton,
+  NESColors,
+} from '@/utils/NESUI';
 
 /**
  * Multiplayer lobby scene for WebRTC connection setup
@@ -18,6 +23,7 @@ export class MultiplayerLobbyScene extends Phaser.Scene {
   private answerInput!: Phaser.GameObjects.DOMElement | { node: HTMLTextAreaElement; destroy: () => void };
   private iceCandidates: RTCIceCandidateInit[] = [];
   private remoteIceCandidates: RTCIceCandidateInit[] = [];
+  private uiContainer!: Phaser.GameObjects.Container;
 
   constructor() {
     super({ key: 'MultiplayerLobbyScene' });
@@ -27,37 +33,54 @@ export class MultiplayerLobbyScene extends Phaser.Scene {
     const width = this.cameras.main.width;
     const height = this.cameras.main.height;
 
-    // Title with shadow (bitmap font)
-    const titleShadow = this.add.bitmapText(width / 2 + 2, 52, 'pixel-font', 'P2P Multiplayer Setup', 32);
-    titleShadow.setTintFill(0x000000);
-    titleShadow.setOrigin(0.5);
+    // Create root container for UI elements
+    this.uiContainer = this.add.container(0, 0);
 
-    const title = this.add.bitmapText(width / 2, 50, 'pixel-font', 'P2P Multiplayer Setup', 32);
-    title.setTintFill(0xffffff);
-    title.setOrigin(0.5);
+    // Title with shadow (bitmap font)
+    createTextWithShadow(
+      this,
+      this.uiContainer,
+      width / 2,
+      50,
+      'P2P Multiplayer Setup',
+      32,
+      NESColors.white,
+      0.5,
+      0.5
+    );
 
     // Status text with shadow (bitmap font)
-    this.statusTextShadow = this.add.bitmapText(width / 2 + 1, 121, 'pixel-font', 'Choose your role:', 20);
-    this.statusTextShadow.setTintFill(0x000000);
-    this.statusTextShadow.setOrigin(0.5);
-
-    this.statusText = this.add.bitmapText(width / 2, 120, 'pixel-font', 'Choose your role:', 20);
-    this.statusText.setTintFill(0xffffff);
-    this.statusText.setOrigin(0.5);
+    const { shadow: statusTextShadow, text: statusText } = createTextWithShadow(
+      this,
+      this.uiContainer,
+      width / 2,
+      120,
+      'Choose your role:',
+      20,
+      NESColors.white,
+      0.5,
+      0.5
+    );
+    this.statusTextShadow = statusTextShadow;
+    this.statusText = statusText;
 
     // Create host/join buttons
-    this.createButton(width / 2, 180, 'Create Game (Host)', () => this.startAsHost());
-    this.createButton(width / 2, 250, 'Join Game (Client)', () => this.startAsClient());
+    this.createButton(this.uiContainer, width / 2, 180, 'Create Game (Host)', () => this.startAsHost());
+    this.createButton(this.uiContainer, width / 2, 250, 'Join Game (Client)', () => this.startAsClient());
 
     // Instructions with shadow (bitmap font)
     const instructionsStr = 'Copy and paste the SDP offer/answer between players';
-    const instructionsShadow = this.add.bitmapText(width / 2 + 1, height - 99, 'pixel-font', instructionsStr, 16);
-    instructionsShadow.setTintFill(0x000000);
-    instructionsShadow.setOrigin(0.5);
-
-    const instructions = this.add.bitmapText(width / 2, height - 100, 'pixel-font', instructionsStr, 16);
-    instructions.setTintFill(0xaaaaaa);
-    instructions.setOrigin(0.5);
+    createTextWithShadow(
+      this,
+      this.uiContainer,
+      width / 2,
+      height - 100,
+      instructionsStr,
+      16,
+      0xaaaaaa,
+      0.5,
+      0.5
+    );
 
     // Initialize WebRTC manager
     try {
@@ -156,13 +179,19 @@ export class MultiplayerLobbyScene extends Phaser.Scene {
 
     // Label with shadow (bitmap font)
     const offerLabelStr = 'Your Offer (copy this):';
-    this.offerTextShadow = this.add.bitmapText(width / 2 + 1, 321, 'pixel-font', offerLabelStr, 18);
-    this.offerTextShadow.setTintFill(0x000000);
-    this.offerTextShadow.setOrigin(0.5);
-
-    this.offerText = this.add.bitmapText(width / 2, 320, 'pixel-font', offerLabelStr, 18);
-    this.offerText.setTintFill(0xffffff);
-    this.offerText.setOrigin(0.5);
+    const { shadow: offerTextShadow, text: offerText } = createTextWithShadow(
+      this,
+      this.uiContainer,
+      width / 2,
+      320,
+      offerLabelStr,
+      18,
+      NESColors.white,
+      0.5,
+      0.5
+    );
+    this.offerTextShadow = offerTextShadow;
+    this.offerText = offerText;
 
     // Create textarea for offer
     const offerElement = document.createElement('textarea');
@@ -195,7 +224,7 @@ export class MultiplayerLobbyScene extends Phaser.Scene {
     }
 
     // Copy button
-    this.createButton(width / 2, 450, 'Copy Offer', () => {
+    this.createButton(this.uiContainer, width / 2, 450, 'Copy Offer', () => {
       offerElement.select();
       document.execCommand('copy');
       const copiedMsg = 'Offer copied to clipboard!';
@@ -227,13 +256,19 @@ export class MultiplayerLobbyScene extends Phaser.Scene {
     }
 
     // Label with shadow (bitmap font)
-    this.answerTextShadow = this.add.bitmapText(width / 2 + 1, 521, 'pixel-font', labelText, 18);
-    this.answerTextShadow.setTintFill(0x000000);
-    this.answerTextShadow.setOrigin(0.5);
-
-    this.answerText = this.add.bitmapText(width / 2, 520, 'pixel-font', labelText, 18);
-    this.answerText.setTintFill(0xffffff);
-    this.answerText.setOrigin(0.5);
+    const { shadow: answerTextShadow, text: answerText } = createTextWithShadow(
+      this,
+      this.uiContainer,
+      width / 2,
+      520,
+      labelText,
+      18,
+      NESColors.white,
+      0.5,
+      0.5
+    );
+    this.answerTextShadow = answerTextShadow;
+    this.answerText = answerText;
 
     // Create textarea for answer/offer
     const answerElement = document.createElement('textarea');
@@ -266,7 +301,7 @@ export class MultiplayerLobbyScene extends Phaser.Scene {
 
     // Submit button
     const buttonText = this.isHost ? 'Submit Answer' : 'Submit Offer';
-    this.createButton(width / 2, 650, buttonText, () => {
+    this.createButton(this.uiContainer, width / 2, 650, buttonText, () => {
       const sdpString = answerElement.value.trim();
       if (sdpString) {
         this.handleSDPInput(sdpString);
@@ -351,48 +386,25 @@ export class MultiplayerLobbyScene extends Phaser.Scene {
   /**
    * Create a button
    */
-  private createButton(x: number, y: number, text: string, callback: () => void): Phaser.GameObjects.Container {
-    const buttonWidth = 250;
-    const buttonHeight = 50;
-
-    const bg = this.add.graphics();
-    bg.fillStyle(0x4a4a4a);
-    bg.fillRoundedRect(-buttonWidth / 2, -buttonHeight / 2, buttonWidth, buttonHeight, 10);
-    bg.lineStyle(2, 0xffffff);
-    bg.strokeRoundedRect(-buttonWidth / 2, -buttonHeight / 2, buttonWidth, buttonHeight, 10);
-
-    // Button text with shadow (bitmap font)
-    const buttonTextShadow = this.add.bitmapText(1, 1, 'pixel-font', text, 18);
-    buttonTextShadow.setTintFill(0x000000);
-    buttonTextShadow.setOrigin(0.5);
-
-    const buttonText = this.add.bitmapText(0, 0, 'pixel-font', text, 18);
-    buttonText.setTintFill(0xffffff);
-    buttonText.setOrigin(0.5);
-
-    const container = this.add.container(x, y, [bg, buttonTextShadow, buttonText]);
-    container.setSize(buttonWidth, buttonHeight);
-    container.setInteractive({ useHandCursor: true });
-
-    container.on('pointerover', () => {
-      bg.clear();
-      bg.fillStyle(0x5a5a5a);
-      bg.fillRoundedRect(-buttonWidth / 2, -buttonHeight / 2, buttonWidth, buttonHeight, 10);
-      bg.lineStyle(2, 0xffffff);
-      bg.strokeRoundedRect(-buttonWidth / 2, -buttonHeight / 2, buttonWidth, buttonHeight, 10);
-    });
-
-    container.on('pointerout', () => {
-      bg.clear();
-      bg.fillStyle(0x4a4a4a);
-      bg.fillRoundedRect(-buttonWidth / 2, -buttonHeight / 2, buttonWidth, buttonHeight, 10);
-      bg.lineStyle(2, 0xffffff);
-      bg.strokeRoundedRect(-buttonWidth / 2, -buttonHeight / 2, buttonWidth, buttonHeight, 10);
-    });
-
-    container.on('pointerdown', callback);
-
-    return container;
+  private createButton(
+    parent: Phaser.GameObjects.Container,
+    x: number,
+    y: number,
+    text: string,
+    callback: () => void
+  ): void {
+    createNESButton(
+      this,
+      parent,
+      {
+      x,
+      y,
+      width: 250,
+      height: 50,
+      text,
+      onClick: callback,
+      }
+    );
   }
 
   shutdown(): void {

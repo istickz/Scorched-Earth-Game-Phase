@@ -1,39 +1,46 @@
 import Phaser from 'phaser';
-import { type IProjectileConfig } from '@/types';
+import { type IProjectileConfig, type IEnvironmentEffects } from '@/types';
 
 /**
- * Projectile entity with ballistic physics
+ * Projectile entity with manual ballistic physics
+ * No longer uses Matter.js - uses custom physics simulation for better control
  */
-export class Projectile extends Phaser.Physics.Matter.Sprite {
+export class Projectile extends Phaser.GameObjects.Sprite {
   private ownerId: string;
   private sceneRef: Phaser.Scene;
   private flightSound?: { stop: () => void };
   private lastX: number = 0;
   private lastY: number = 0;
 
+  // Physics properties
+  private velocityX: number;
+  private velocityY: number;
+  private readonly SPEED_MULTIPLIER = 50; // simulation speed multiplier (replaces timeScale)
+  private environmentEffects: IEnvironmentEffects;
+
   constructor(scene: Phaser.Scene, config: IProjectileConfig) {
-    // Create sprite
-    super(scene.matter.world, config.x, config.y, 'projectile', undefined, {
-      shape: { type: 'circle', radius: 4 },
-    });
+    // Create sprite without Matter.js physics
+    super(scene, config.x, config.y, 'projectile');
 
     this.sceneRef = scene;
     this.ownerId = config.ownerId;
-
-    // Set up physics
-    const angleRad = Phaser.Math.DegToRad(config.angle);
-    // Base velocity multiplier - physics will be accelerated via timeScale instead
-    const velocity = (config.power / 100) * 50;
-    const velocityX = Math.cos(angleRad) * velocity;
-    const velocityY = Math.sin(angleRad) * velocity;
-
-    this.setVelocity(velocityX, velocityY);
-    this.setFrictionAir(0.01); // Air resistance
-    this.setMass(0.1);
-
-    // Store initial position for trajectory checking
     this.lastX = config.x;
     this.lastY = config.y;
+
+    // Set environment effects (default to normal conditions if not provided)
+    this.environmentEffects = config.environmentEffects || {
+      windX: 0,
+      windY: 0,
+      gravity: 1.0,
+      airDensity: 1.0,
+      turbulence: 0,
+    };
+
+    // Calculate initial velocity
+    const angleRad = Phaser.Math.DegToRad(config.angle);
+    const velocity = (config.power / 100) * 50;
+    this.velocityX = Math.cos(angleRad) * velocity;
+    this.velocityY = Math.sin(angleRad) * velocity;
 
     // Create visual representation
     this.createVisual();
@@ -43,6 +50,55 @@ export class Projectile extends Phaser.Physics.Matter.Sprite {
 
     scene.add.existing(this);
     this.setDepth(5); // Render above terrain, below UI
+  }
+
+  /**
+   * Update projectile position with all physical effects
+   * This method should be called each frame from GameScene.update()
+   */
+  public updatePosition(delta: number): void {
+    // Convert delta to seconds and apply speed multiplier
+    const dt = (delta / 1000) * this.SPEED_MULTIPLIER;
+
+    // 1. GRAVITY (can vary by planet/biome!)
+    this.velocityY += this.environmentEffects.gravity * dt;
+
+    // 2. WIND (affects trajectory)
+    // Wind affects slower projectiles more
+    const speed = Math.sqrt(this.velocityX ** 2 + this.velocityY ** 2);
+    const windEffect = 1.0 / (1.0 + Math.abs(this.velocityX) * 0.1);
+    this.velocityX += this.environmentEffects.windX * windEffect * dt;
+    this.velocityY += this.environmentEffects.windY * windEffect * dt;
+
+    // 3. AIR RESISTANCE (depends on density and speed)
+    const dragCoefficient = 0.01 * this.environmentEffects.airDensity;
+    const dragForce = dragCoefficient * speed;
+
+    if (speed > 0) {
+      this.velocityX -= (this.velocityX / speed) * dragForce * dt;
+      this.velocityY -= (this.velocityY / speed) * dragForce * dt;
+    }
+
+    // 4. TURBULENCE (random disturbances, like in a storm)
+    if (this.environmentEffects.turbulence > 0) {
+      const turbulence = this.environmentEffects.turbulence;
+      this.velocityX += (Math.random() - 0.5) * turbulence * dt;
+      this.velocityY += (Math.random() - 0.5) * turbulence * dt;
+    }
+
+    // 5. UPDATE POSITION
+    this.x += this.velocityX * dt;
+    this.y += this.velocityY * dt;
+
+    // 6. ROTATION (visual effect based on velocity)
+    this.rotation += speed * 0.02 * dt;
+  }
+
+  /**
+   * Get current speed (useful for visual effects like trails)
+   */
+  public getSpeed(): number {
+    return Math.sqrt(this.velocityX ** 2 + this.velocityY ** 2);
   }
 
   /**
@@ -58,6 +114,13 @@ export class Projectile extends Phaser.Physics.Matter.Sprite {
    */
   public getLastPosition(): { x: number; y: number } {
     return { x: this.lastX, y: this.lastY };
+  }
+
+  /**
+   * Get owner ID
+   */
+  public getOwnerId(): string {
+    return this.ownerId;
   }
 
   /**
@@ -90,13 +153,6 @@ export class Projectile extends Phaser.Physics.Matter.Sprite {
   }
 
   /**
-   * Get owner ID
-   */
-  public getOwnerId(): string {
-    return this.ownerId;
-  }
-
-  /**
    * Clean up resources
    */
   public destroy(): void {
@@ -109,4 +165,3 @@ export class Projectile extends Phaser.Physics.Matter.Sprite {
     super.destroy();
   }
 }
-

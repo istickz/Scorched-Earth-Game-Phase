@@ -1,5 +1,6 @@
 import Phaser from 'phaser';
-import { GameMode, type ITankConfig, type AIDifficulty, type ILevelConfig, TerrainBiome, TerrainShape } from '@/types';
+import { GameMode, type ITankConfig, type AIDifficulty, type ILevelConfig, TerrainBiome, TerrainShape, type IEnvironmentEffects } from '@/types';
+import { createTextWithShadow } from '@/utils/NESUI';
 import { TerrainSystem } from '@/systems/TerrainSystem';
 import { Tank } from '@/entities/Tank';
 import { Projectile } from '@/entities/Projectile';
@@ -10,6 +11,7 @@ import { NetworkSync } from '@/network/NetworkSync';
 import { AudioSystem } from '@/systems/AudioSystem';
 import { BiomeSystem } from '@/systems/BiomeSystem';
 import { WeatherSystem } from '@/systems/WeatherSystem';
+import { EnvironmentSystem } from '@/systems/EnvironmentSystem';
 
 /**
  * Main game scene
@@ -36,6 +38,7 @@ export class GameScene extends Phaser.Scene {
   private webrtcManager?: WebRTCManager;
   private networkSync?: NetworkSync;
   private audioSystem!: AudioSystem;
+  private environmentEffects!: IEnvironmentEffects;
   // Trajectory tracking system
   private activeTrajectories: Map<Projectile, { x: number; y: number }[]> = new Map();
   private completedTrajectories: { x: number; y: number }[][] = [];
@@ -80,13 +83,8 @@ export class GameScene extends Phaser.Scene {
     const width = this.cameras.main.width;
     const height = this.cameras.main.height;
 
-    if (this.matter) {
-      // Не устанавливаем setBounds() - это создает физические стены по краям экрана
-      // Вместо этого снаряды удаляются вручную при выходе за границы (см. update())
-      if (this.matter.world.engine) {
-        this.matter.world.engine.timing.timeScale = 12.0;
-      }
-    }
+    // Matter.js is now only used for tanks, not for projectiles
+    // Projectiles use manual physics simulation with EnvironmentSystem
 
     // Use provided config or create random one
     const levelConfig: ILevelConfig = this.levelConfig || this.createRandomLevelConfig();
@@ -95,6 +93,24 @@ export class GameScene extends Phaser.Scene {
     const terrainSeed = levelConfig.seed !== undefined ? levelConfig.seed : Math.random() * 1000000;
     
     console.log(`🎨 Level: ${BiomeSystem.getBiomeIcon(levelConfig.biome)} ${BiomeSystem.getBiomeName(levelConfig.biome)} - ${levelConfig.shape} - ${levelConfig.weather} - ${levelConfig.timeOfDay} - ${levelConfig.season}`);
+    
+    // Initialize environment effects based on biome, weather, and time
+    // Use custom values from levelConfig if provided, otherwise use defaults
+    const defaultEffects = EnvironmentSystem.getEffects(
+      levelConfig.biome,
+      levelConfig.weather,
+      levelConfig.timeOfDay
+    );
+    this.environmentEffects = levelConfig.environmentEffects 
+      ? { ...levelConfig.environmentEffects }
+      : { ...defaultEffects };
+
+    // Add random wind variation for each game
+    const windVar = EnvironmentSystem.getWindVariation();
+    this.environmentEffects.windX += windVar.windX;
+    this.environmentEffects.windY += windVar.windY;
+
+    console.log('🌪️ Environment:', EnvironmentSystem.getEnvironmentDescription(this.environmentEffects));
     
     // Get colors for biome
     const colors = BiomeSystem.getColors(levelConfig.biome, levelConfig.season, levelConfig.timeOfDay);
@@ -122,7 +138,7 @@ export class GameScene extends Phaser.Scene {
 
     // Create weather effects (system manages itself, no need to store reference)
     if (levelConfig.weather !== 'none') {
-      new WeatherSystem(this, levelConfig.weather, levelConfig.timeOfDay);
+      new WeatherSystem(this, levelConfig.weather, levelConfig.timeOfDay, this.environmentEffects);
     }
 
     if (this.gameMode === GameMode.Solo) {
@@ -184,24 +200,39 @@ export class GameScene extends Phaser.Scene {
   }
 
   private setupUI(): void {
-    // UI text with shadow (bitmap font)
-    this.uiTextShadow = this.add.bitmapText(21, 21, 'pixel-font', '', 18);
-    this.uiTextShadow.setTintFill(0x000000);
-    this.uiTextShadow.setOrigin(0, 0);
+    // Create UI container for HUD elements
+    const uiContainer = this.add.container(0, 0);
     
-    this.uiText = this.add.bitmapText(20, 20, 'pixel-font', '', 18);
-    this.uiText.setTintFill(0xffffff);
-    this.uiText.setOrigin(0, 0);
+    // UI text with shadow (bitmap font)
+    const { shadow: uiTextShadow, text: uiText } = createTextWithShadow(
+      this,
+      uiContainer,
+      20,
+      20,
+      '',
+      18,
+      0xffffff,
+      0,
+      0
+    );
+    this.uiTextShadow = uiTextShadow;
+    this.uiText = uiText;
 
     // Controls text with shadow (bitmap font)
     const controlsTextStr = 'Controls: ← → (Angle) | ↑ ↓ (Power) | SPACE (Fire)';
-    this.controlsTextShadow = this.add.bitmapText(21, 61, 'pixel-font', controlsTextStr, 14);
-    this.controlsTextShadow.setTintFill(0x000000);
-    this.controlsTextShadow.setOrigin(0, 0);
-    
-    this.controlsText = this.add.bitmapText(20, 60, 'pixel-font', controlsTextStr, 14);
-    this.controlsText.setTintFill(0xaaaaaa);
-    this.controlsText.setOrigin(0, 0);
+    const { shadow: controlsTextShadow, text: controlsText } = createTextWithShadow(
+      this,
+      uiContainer,
+      20,
+      60,
+      controlsTextStr,
+      14,
+      0xaaaaaa,
+      0,
+      0
+    );
+    this.controlsTextShadow = controlsTextShadow;
+    this.controlsText = controlsText;
 
     // Создаем графику для предпросмотра траектории
     this.trajectoryPreview = this.add.graphics();
@@ -458,6 +489,7 @@ export class GameScene extends Phaser.Scene {
       angle: fireData.angle,
       power: fireData.power,
       ownerId: ownerId,
+      environmentEffects: this.environmentEffects,
     });
 
     this.lastShotData.set(projectile.getOwnerId(), {
@@ -692,7 +724,7 @@ export class GameScene extends Phaser.Scene {
     });
   }
 
-  update(): void {
+  update(_time: number, delta: number): void {
     // Останавливаем обновления после окончания игры
     if (this.gameOver) {
       return;
@@ -707,6 +739,11 @@ export class GameScene extends Phaser.Scene {
     if (this.tanks[this.currentPlayerIndex]?.isAlive() && this.canFire && !this.waitingForProjectile) {
       this.updateTrajectoryPreview();
     }
+
+    // Update projectile positions with manual physics (before collision detection)
+    this.activeProjectiles.forEach((projectile) => {
+      projectile.updatePosition(delta);
+    });
 
     // ЕДИНАЯ система детекции попаданий
     const projectilesToRemove: Projectile[] = [];
@@ -810,7 +847,7 @@ export class GameScene extends Phaser.Scene {
       });
     }
 
-    // Обновляем траектории
+    // Обновляем траектории и последние позиции для следующего кадра
     this.activeProjectiles.forEach((projectile) => {
       const trajectory = this.activeTrajectories.get(projectile);
       if (trajectory) {

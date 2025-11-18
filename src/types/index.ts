@@ -31,6 +31,17 @@ export interface ITankConfig {
 }
 
 /**
+ * Environment physical effects
+ */
+export interface IEnvironmentEffects {
+  windX: number;           // horizontal wind force
+  windY: number;           // vertical wind force (updrafts/downdrafts)
+  gravity: number;         // gravity strength (may vary by biome)
+  airDensity: number;      // air density (affects drag)
+  turbulence: number;      // random turbulence strength
+}
+
+/**
  * Projectile configuration interface
  */
 export interface IProjectileConfig {
@@ -39,6 +50,7 @@ export interface IProjectileConfig {
   angle: number;
   power: number;
   ownerId: string;
+  environmentEffects?: IEnvironmentEffects;
 }
 
 /**
@@ -89,6 +101,7 @@ export interface ILevelConfig {
   timeOfDay: TimeOfDay;
   season: Season;
   seed?: number; // Optional seed for terrain generation
+  environmentEffects?: IEnvironmentEffects; // Optional custom environment effects (overrides biome defaults)
 }
 
 /**

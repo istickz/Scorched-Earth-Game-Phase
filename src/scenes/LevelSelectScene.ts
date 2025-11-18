@@ -4,6 +4,19 @@ import { BiomeSystem } from '@/systems/BiomeSystem';
 import { NoiseGenerator } from '@/utils/NoiseGenerator';
 import { WeatherSystem } from '@/systems/WeatherSystem';
 import { PixelIconGenerator } from '@/utils/PixelIconGenerator';
+import { EnvironmentSystem } from '@/systems/EnvironmentSystem';
+import {
+  createNESContainer,
+  createTextWithShadow,
+  createSectionTitle,
+  createNESButton,
+  createNESRadioGroup,
+  createNESSlider,
+  createNESMenuButton,
+  createNESPanel,
+  NESColors,
+  NESTheme,
+} from '@/utils/NESUI';
 
 /**
  * Level configuration scene with modular biome/terrain system
@@ -21,7 +34,8 @@ export class LevelSelectScene extends Phaser.Scene {
   private previewGraphics!: Phaser.GameObjects.Graphics;
   private roughnessValueText!: Phaser.GameObjects.BitmapText;
   private previewSeed: number = Math.random() * 1000000;
-  private seedInputElement!: HTMLInputElement;
+  private seedValueText!: Phaser.GameObjects.BitmapText;
+  private seedValueShadow!: Phaser.GameObjects.BitmapText;
   private previewWeatherEmitter?: Phaser.GameObjects.Particles.ParticleEmitter;
   private previewMaskGraphics?: Phaser.GameObjects.Graphics;
   private menuMusic!: Phaser.Sound.BaseSound | null;
@@ -30,6 +44,13 @@ export class LevelSelectScene extends Phaser.Scene {
   private previewWidth!: number;
   private previewHeight!: number;
   private contentContainer!: Phaser.GameObjects.Container;
+  private environmentSliders: {
+    windX?: { thumb: Phaser.GameObjects.Arc; valueText: Phaser.GameObjects.BitmapText };
+    windY?: { thumb: Phaser.GameObjects.Arc; valueText: Phaser.GameObjects.BitmapText };
+    gravity?: { thumb: Phaser.GameObjects.Arc; valueText: Phaser.GameObjects.BitmapText };
+    airDensity?: { thumb: Phaser.GameObjects.Arc; valueText: Phaser.GameObjects.BitmapText };
+    turbulence?: { thumb: Phaser.GameObjects.Arc; valueText: Phaser.GameObjects.BitmapText };
+  } = {};
 
   constructor() {
     super({ key: 'LevelSelectScene' });
@@ -77,25 +98,29 @@ export class LevelSelectScene extends Phaser.Scene {
     const titleOffsetY = 30; // Space for section titles
     const contentStartY = containerPadding + titleOffsetY;
     const previewHeight = 420;
+    const environmentBoxHeight = 200;
+    const environmentBottomY = contentStartY + previewHeight + 30 + environmentBoxHeight; // Environment section bottom
     const modifiersStartY = contentStartY + 250;
     const buttonsStartY = modifiersStartY + 380; // Lowered Start button
     const backButtonY = buttonsStartY + 60;
     
     // Calculate required container height based on bottom-most element
-    // backButtonY is relative to container top (includes top padding + title offset)
-    // Container height = content height (backButtonY - top padding) + top padding + bottom padding
-    // Simplified: backButtonY + bottom padding
-    const requiredContainerHeight = backButtonY + containerPadding;
+    // Consider both Environment section (left) and buttons (right)
+    // Container height = max(environmentBottomY, backButtonY) + bottom padding
+    const bottomMostElement = Math.max(environmentBottomY, backButtonY);
+    const requiredContainerHeight = bottomMostElement + containerPadding + 20; // Extra 20px padding at bottom
     const maxAvailableHeight = screenHeight - containerTopY - 50;
     const containerHeight = Math.min(requiredContainerHeight, maxAvailableHeight + containerPadding * 2);
     
+    // ABSOLUTE coordinates: Root container position on scene
     const containerX = screenWidth / 2;
     const containerY = containerTopY + containerHeight / 2;
 
-    // Create content container with NES-style border
+    // Create content container with NES-style border (ABSOLUTE position on scene)
     this.createContentContainer(containerX, containerY, contentWidth, containerHeight);
 
-    // Now calculate positions relative to container center
+    // RELATIVE coordinates: All positions below are relative to contentContainer center (0, 0)
+    // Container center is at (0, 0) in local coordinates
     const previewX = -contentWidth / 2 + containerPadding;
     const controlsX = previewX + previewWidth + gap;
     
@@ -109,8 +134,21 @@ export class LevelSelectScene extends Phaser.Scene {
     const buttonsStartYRelative = modifiersStartYRelative + 380; // Lowered Start button
     const backButtonYRelative = buttonsStartYRelative + 60;
 
+    // Create "Random All" button attached to right edge of container
+    const randomButtonHeight = 45;
+    const randomButtonWidth = 180;
+    // Position so right edge aligns with container right edge
+    // Container center is at 0, right edge is at contentWidth/2
+    // Button center should be at: rightEdge - buttonWidth/2 = contentWidth/2 - buttonWidth/2
+    const randomButtonX = contentWidth / 2 - randomButtonWidth / 2;
+    const randomButtonY = -containerHeight / 2 + randomButtonHeight / 2; // Top edge, no padding
+    this.createRandomAllButton(randomButtonX, randomButtonY, randomButtonWidth, randomButtonHeight);
+
     // Create preview on the left (y position includes space for title)
     this.createPreview(previewX, contentStartYRelative, previewWidth, previewHeight, titleOffsetY);
+    
+    // Create environment info below preview (with bottom padding)
+    this.createEnvironmentInfo(previewX, contentStartYRelative + previewHeight + 30, previewWidth);
 
     // Create biome selection buttons on the right (2 rows, 2 columns)
     this.createBiomeButtons(actualControlsX, contentStartYRelative, controlsWidth, titleOffsetY);
@@ -136,21 +174,7 @@ export class LevelSelectScene extends Phaser.Scene {
    * Create content container with NES-style border
    */
   private createContentContainer(x: number, y: number, width: number, height: number): void {
-    // Create container
-    this.contentContainer = this.add.container(x, y);
-
-    // Background box with NES-style border
-    const bgGraphics = this.add.graphics();
-    bgGraphics.fillStyle(0x34495e, 0.8);
-    bgGraphics.fillRoundedRect(-width / 2, -height / 2, width, height, 8);
-    bgGraphics.lineStyle(3, 0x3498db);
-    bgGraphics.strokeRoundedRect(-width / 2, -height / 2, width, height, 8);
-    
-    // Inner border
-    bgGraphics.lineStyle(1, 0x5dade2);
-    bgGraphics.strokeRoundedRect(-width / 2 + 4, -height / 2 + 4, width - 8, height - 8, 6);
-
-    this.contentContainer.add(bgGraphics);
+    this.contentContainer = createNESContainer(this, x, y, width, height);
   }
 
   /**
@@ -178,25 +202,35 @@ export class LevelSelectScene extends Phaser.Scene {
   private createNESTitle(width: number, _height: number, _red: string, _yellow: string, _white: string): void {
     const titleY = 100; // Lowered title position further
     const nesRed = 0xe74c3c;
-    const nesYellow = 0xf1c40f;
+    
+    // Create root container for title elements (positioned at 0,0 on scene)
+    const titleContainer = this.add.container(0, 0);
     
     // Main title with shadow effect (NES style) - using bitmap font
-    const titleShadow = this.add.bitmapText(width / 2 + 4, titleY + 4, 'pixel-font', 'SELECT TERRAIN', 32);
-    titleShadow.setTintFill(0x000000);
-    titleShadow.setOrigin(0.5);
-
-    const title = this.add.bitmapText(width / 2, titleY, 'pixel-font', 'SELECT TERRAIN', 32);
-    title.setTintFill(nesRed);
-    title.setOrigin(0.5);
+    createTextWithShadow(
+      this,
+      titleContainer,
+      width / 2,
+      titleY,
+      'SELECT TERRAIN',
+      32,
+      nesRed,
+      0.5,
+      0.5
+    );
 
     // Subtitle with NES colors
-    const subtitleShadow = this.add.bitmapText(width / 2 + 2, titleY + 55 + 2, 'pixel-font', 'Local Multiplayer - Configure Battle', 14);
-    subtitleShadow.setTintFill(0x000000);
-    subtitleShadow.setOrigin(0.5);
-    
-    const subtitle = this.add.bitmapText(width / 2, titleY + 55, 'pixel-font', 'Local Multiplayer - Configure Battle', 14);
-    subtitle.setTintFill(nesYellow);
-    subtitle.setOrigin(0.5);
+    createTextWithShadow(
+      this,
+      titleContainer,
+      width / 2,
+      titleY + 55,
+      'Local Multiplayer - Configure Battle',
+      14,
+      NESColors.yellow,
+      0.5,
+      0.5
+    );
   }
 
   /**
@@ -217,21 +251,20 @@ export class LevelSelectScene extends Phaser.Scene {
 
     // Title for biomes section (positioned at same height as Preview title)
     const titleY = startY - titleOffsetY;
-    const titleShadow = this.add.bitmapText(startX + availableWidth / 2 + 2, titleY + 2, 'pixel-font', 'BIOMES', 16);
-    titleShadow.setTintFill(0x000000);
-    titleShadow.setOrigin(0.5);
+    createSectionTitle(this, this.contentContainer, startX + availableWidth / 2, titleY, 'BIOMES', 16);
 
-    const title = this.add.bitmapText(startX + availableWidth / 2, titleY, 'pixel-font', 'BIOMES', 16);
-    title.setTintFill(0xf1c40f);
-    title.setOrigin(0.5);
-    
-    this.contentContainer.add([titleShadow, title]);
+    // Вычисляем центры кнопок (не левые верхние углы!)
+    // startX и startY - это позиция левого верхнего угла первой кнопки
+    // Нужно добавить buttonWidth/2 и buttonHeight/2 чтобы получить центр первой кнопки
+    const firstButtonCenterX = startX + buttonWidth / 2;
+    const firstButtonCenterY = startY + buttonHeight / 2;
 
     biomes.forEach((biome, index) => {
       const row = Math.floor(index / cols);
       const col = index % cols;
-      const x = startX + col * (buttonWidth + spacing);
-      const y = startY + row * (buttonHeight + spacing);
+      // Центр кнопки = центр первой кнопки + смещение по сетке
+      const x = firstButtonCenterX + col * (buttonWidth + spacing);
+      const y = firstButtonCenterY + row * (buttonHeight + spacing);
       this.createBiomeButton(x, y, buttonWidth, buttonHeight, biome);
     });
   }
@@ -246,76 +279,41 @@ export class LevelSelectScene extends Phaser.Scene {
     height: number,
     biome: TerrainBiome
   ): void {
-    const container = this.add.container(x, y);
     const isSelected = this.levelConfig.biome === biome;
-    const nesBlue = 0x3498db;
-    const nesYellow = 0xf1c40f;
 
-    // Button background with NES style
-    const bg = this.add.graphics();
-    bg.fillStyle(isSelected ? 0x34495e : 0x2c3e50, 0.9);
-    bg.fillRoundedRect(0, 0, width, height, 8);
-    bg.lineStyle(isSelected ? 3 : 2, isSelected ? nesYellow : nesBlue, 1);
-    bg.strokeRoundedRect(0, 0, width, height, 8);
-    
-    // Inner border for NES feel
-    if (isSelected) {
-      bg.lineStyle(1, nesBlue, 0.8);
-      bg.strokeRoundedRect(2, 2, width - 4, height - 4, 6);
-    }
+    // Create button container first
+    const container = this.add.container(x, y);
 
-    bg.setInteractive({
-      hitArea: new Phaser.Geom.Rectangle(0, 0, width, height),
-      hitAreaCallback: Phaser.Geom.Rectangle.Contains,
-      useHandCursor: true,
-    });
-
-    // Pixel art icon with shadow (NES style)
+    // Pixel art icon - positioned relative to container
     const iconSize = 32;
     const iconX = width / 2;
     const iconY = 30;
     
-    const iconShadow = PixelIconGenerator.createBiomeIcon(this, biome, iconX + 2, iconY + 2, iconSize, 0x000000);
     const icon = PixelIconGenerator.createBiomeIcon(this, biome, iconX, iconY, iconSize);
 
-    // Name with shadow (NES style)
-    const nameShadow = this.add.bitmapText(width / 2 + 2, 77, 'pixel-font', BiomeSystem.getBiomeName(biome), 14);
-    nameShadow.setTintFill(0x000000);
-    nameShadow.setOrigin(0.5);
-
-    const name = this.add.bitmapText(width / 2, 75, 'pixel-font', BiomeSystem.getBiomeName(biome), 14);
-    name.setTintFill(isSelected ? 0xf1c40f : 0xffffff);
-    name.setOrigin(0.5);
-
-    container.add([bg, iconShadow, icon, nameShadow, name]);
-    this.contentContainer.add(container);
-
-    // Hover effect
-    bg.on('pointerover', () => {
-      if (this.levelConfig.biome !== biome) {
-        bg.clear();
-        bg.fillStyle(0x34495e, 0.9);
-        bg.fillRoundedRect(0, 0, width, height, 8);
-        bg.lineStyle(2, nesBlue, 1);
-        bg.strokeRoundedRect(0, 0, width, height, 8);
-      }
-    });
-
-    bg.on('pointerout', () => {
-      if (this.levelConfig.biome !== biome) {
-        bg.clear();
-        bg.fillStyle(0x2c3e50, 0.9);
-        bg.fillRoundedRect(0, 0, width, height, 8);
-        bg.lineStyle(2, nesBlue, 1);
-        bg.strokeRoundedRect(0, 0, width, height, 8);
-      }
-    });
-
-    // Click to select
-    bg.on('pointerdown', () => {
+    // Create button using NESUI component
+    createNESButton(
+      this,
+      container,
+      {
+      x: 0, // Position relative to container
+      y: 0,
+      width,
+      height,
+      text: BiomeSystem.getBiomeName(biome),
+      icon: icon,
+      selected: isSelected,
+      onClick: () => {
       this.levelConfig.biome = biome;
+      // Reset environment effects to defaults for new biome
+      // User can then edit them if they want
+      this.levelConfig.environmentEffects = undefined;
       this.scene.restart(); // Restart scene to refresh selection
-    });
+      },
+      }
+    );
+
+    this.contentContainer.add(container);
   }
 
   /**
@@ -325,186 +323,160 @@ export class LevelSelectScene extends Phaser.Scene {
     const sectionCenterX = startX + availableWidth / 2;
 
     // Section title with NES style
-    const modifiersTitleShadow = this.add.bitmapText(sectionCenterX + 2, startY + 2, 'pixel-font', 'MODIFIERS', 16);
-    modifiersTitleShadow.setTintFill(0x000000);
-    modifiersTitleShadow.setOrigin(0.5);
+    createSectionTitle(this, this.contentContainer, sectionCenterX, startY, 'MODIFIERS', 16);
 
-    const modifiersTitle = this.add.bitmapText(sectionCenterX, startY, 'pixel-font', 'MODIFIERS', 16);
-    modifiersTitle.setTintFill(0xf1c40f);
-    modifiersTitle.setOrigin(0.5);
-    
-    this.contentContainer.add([modifiersTitleShadow, modifiersTitle]);
-
-    const row1Y = startY + 40;
-    const row2Y = startY + 80;
-    const row3Y = startY + 120;
-    const row4Y = startY + 160;
-    const row5Y = startY + 210;
-    const row6Y = startY + 260; // Increased spacing before Seed
+    // Одинаковый отступ между всеми строками
+    const rowSpacing = 50;
+    const row1Y = startY + rowSpacing;
+    const row2Y = startY + rowSpacing * 2;
+    const row3Y = startY + rowSpacing * 3;
+    const row4Y = startY + rowSpacing * 4;
+    const row5Y = startY + rowSpacing * 5;
+    const row6Y = startY + rowSpacing * 6;
 
     // Terrain Shape
-    this.createRadioGroup('Terrain:', startX, row1Y, [
+    createNESRadioGroup(
+      this,
+      this.contentContainer,
+      {
+      x: startX,
+      y: row1Y,
+      label: 'Terrain:',
+      options: [
       { label: 'Hills', value: TerrainShape.HILLS },
       { label: 'Mountains', value: TerrainShape.MOUNTAINS },
-    ], this.levelConfig.shape, (value) => {
+      ],
+      currentValue: this.levelConfig.shape,
+      onChange: (value) => {
       this.levelConfig.shape = value as TerrainShape;
       this.updatePreview();
-    });
+        this.scene.restart();
+      },
+      }
+    );
 
     // Weather
-    this.createRadioGroup('Weather:', startX, row2Y, [
+    createNESRadioGroup(
+      this,
+      this.contentContainer,
+      {
+      x: startX,
+      y: row2Y,
+      label: 'Weather:',
+      options: [
       { label: 'Clear', value: 'none' },
       { label: 'Rain', value: 'rain' },
       { label: 'Snow', value: 'snow' },
-    ], this.levelConfig.weather, (value) => {
+      ],
+      currentValue: this.levelConfig.weather,
+      onChange: (value) => {
       this.levelConfig.weather = value as WeatherType;
+      // Reset environment effects to defaults when weather changes
+      // User can then edit them if they want
+      this.levelConfig.environmentEffects = undefined;
       this.updatePreview();
-    });
+        this.scene.restart();
+      },
+      }
+    );
 
     // Time of Day
-    this.createRadioGroup('Time:', startX, row3Y, [
+    createNESRadioGroup(
+      this,
+      this.contentContainer,
+      {
+      x: startX,
+      y: row3Y,
+      label: 'Time:',
+      options: [
       { label: 'Day', value: 'day' },
       { label: 'Night', value: 'night' },
-    ], this.levelConfig.timeOfDay, (value) => {
+      ],
+      currentValue: this.levelConfig.timeOfDay,
+      onChange: (value) => {
       this.levelConfig.timeOfDay = value as TimeOfDay;
+      // Reset environment effects to defaults when time changes
+      // User can then edit them if they want
+      this.levelConfig.environmentEffects = undefined;
       this.updatePreview();
-    });
+        this.scene.restart();
+      },
+      }
+    );
 
     // Season
-    this.createRadioGroup('Season:', startX, row4Y, [
+    createNESRadioGroup(
+      this,
+      this.contentContainer,
+      {
+      x: startX,
+      y: row4Y,
+      label: 'Season:',
+      options: [
       { label: 'Summer', value: 'summer' },
       { label: 'Winter', value: 'winter' },
-    ], this.levelConfig.season, (value) => {
+      ],
+      currentValue: this.levelConfig.season,
+      onChange: (value) => {
       this.levelConfig.season = value as Season;
       this.updatePreview();
-    });
+        this.scene.restart();
+      },
+      }
+    );
 
     // Roughness slider
-    this.createSlider('Roughness:', startX, row5Y);
+    this.createSlider('Roughness:', startX, row5Y, availableWidth);
 
     // Seed input
     this.createSeedInput(startX, row6Y);
-
-    // "Random All" button on the right side (full height of modifiers list)
-    const modifiersHeight = row6Y - row1Y; // Height from first to last row
-    const buttonWidth = 200;
-    this.createRandomAllButton(startX + availableWidth - buttonWidth / 2, row1Y, modifiersHeight);
   }
 
-  /**
-   * Create a radio button group
-   */
-  private createRadioGroup<T extends string>(
-    label: string,
-    x: number,
-    y: number,
-    options: { label: string; value: T }[],
-    currentValue: T,
-    onChange: (value: T) => void
-  ): void {
-    const nesBlue = 0x3498db;
-
-    // Label with shadow (NES style)
-    const labelShadow = this.add.bitmapText(x + 1, y + 1, 'pixel-font', label, 12);
-    labelShadow.setTintFill(0x000000);
-
-    const labelText = this.add.bitmapText(x, y, 'pixel-font', label, 12);
-    labelText.setTintFill(0xffffff);
-
-    const radioElements: Phaser.GameObjects.GameObject[] = [labelShadow, labelText];
-
-    // Radio buttons
-    let offsetX = x + 100;
-    options.forEach((option) => {
-      const isSelected = currentValue === option.value;
-      
-      // Circle with NES style
-      const circle = this.add.circle(offsetX, y + 8, 8, isSelected ? 0xf1c40f : 0x34495e)
-        .setStrokeStyle(2, isSelected ? nesBlue : 0x5dade2)
-        .setInteractive({ useHandCursor: true });
-
-      // Label with shadow (NES style)
-      const optionLabelShadow = this.add.bitmapText(offsetX + 15 + 1, y + 1, 'pixel-font', option.label, 12);
-      optionLabelShadow.setTintFill(0x000000);
-
-      const text = this.add.bitmapText(offsetX + 15, y, 'pixel-font', option.label, 12);
-      text.setTintFill(isSelected ? 0xf1c40f : 0xffffff);
-
-      radioElements.push(circle, optionLabelShadow, text);
-
-      // Click handler
-      circle.on('pointerdown', () => {
-        onChange(option.value);
-        this.scene.restart();
-      });
-
-      text.setInteractive({ useHandCursor: true });
-      text.on('pointerdown', () => {
-        onChange(option.value);
-        this.scene.restart();
-      });
-
-      offsetX += 100;
-    });
-
-    this.contentContainer.add(radioElements);
-  }
 
   /**
    * Create a slider for roughness
    */
-  private createSlider(label: string, x: number, y: number): void {
-    const nesBlue = 0x3498db;
-
-    // Label with shadow (NES style) - aligned like other labels
-    const labelShadow = this.add.bitmapText(x + 1, y + 1, 'pixel-font', label, 12);
-    labelShadow.setTintFill(0x000000);
-    labelShadow.setOrigin(0, 0.5);
-
-    const labelText = this.add.bitmapText(x, y, 'pixel-font', label, 12);
-    labelText.setTintFill(0xffffff);
-    labelText.setOrigin(0, 0.5);
-
-    const sliderX = x + 110; // Increased spacing from label
-    const sliderWidth = 200;
+  private createSlider(label: string, x: number, y: number, availableWidth: number): void {
+    // Вычисляем ширину label для правильного отступа
+    const tempText = this.add.bitmapText(0, 0, 'pixel-font', label, NESTheme.defaultFontSize);
+    const labelWidth = tempText.width;
+    tempText.destroy();
     
-    // Slider track with NES style - aligned with label center
-    const track = this.add.rectangle(sliderX, y, sliderWidth, 6, 0x2c3e50).setOrigin(0, 0.5);
-    const trackBorder = this.add.graphics();
-    trackBorder.lineStyle(1, nesBlue, 0.5);
-    trackBorder.strokeRect(sliderX - 1, y - 3, sliderWidth + 2, 6);
-
-    // Slider thumb with NES style - aligned with label center
-    const maxRoughness = 1.0;
-    const thumbX = sliderX + (this.levelConfig.roughness / maxRoughness) * sliderWidth;
-    const thumb = this.add.circle(thumbX, y, 10, 0xf1c40f)
-      .setStrokeStyle(2, nesBlue)
-      .setInteractive({ useHandCursor: true, draggable: true });
-
-    // Value display with shadow (NES style)
-    const valueShadow = this.add.bitmapText(sliderX + sliderWidth + 20 + 1, y + 1, 'pixel-font', this.levelConfig.roughness.toFixed(2), 12);
-    valueShadow.setTintFill(0x000000);
-
-    this.roughnessValueText = this.add.bitmapText(sliderX + sliderWidth + 20, y, 'pixel-font', this.levelConfig.roughness.toFixed(2), 12);
-    this.roughnessValueText.setTintFill(0xffffff);
-
-    this.contentContainer.add([labelShadow, labelText, track, trackBorder, thumb, valueShadow, this.roughnessValueText]);
-
-    // Drag handler - Phaser automatically handles container-local coordinates for interactive objects
-    thumb.on('drag', (_pointer: Phaser.Input.Pointer, dragX: number) => {
-      // dragX is already in container-local coordinates
-      const newX = Phaser.Math.Clamp(dragX, sliderX, sliderX + sliderWidth);
-      thumb.x = newX;
-      
-      // Calculate roughness (0.05 to 1.0)
-      const maxRoughness = 1.0;
-      const minRoughness = 0.05;
-      const percent = (newX - sliderX) / sliderWidth;
-      this.levelConfig.roughness = minRoughness + percent * (maxRoughness - minRoughness);
-      this.roughnessValueText.setText(this.levelConfig.roughness.toFixed(2));
-      
+    // Отступ 15px после label (как в Environment слайдерах)
+    const gapAfterLabel = 15;
+    const sliderStartX = x + labelWidth + gapAfterLabel;
+    
+    // Вычисляем фиксированную позицию конца слайдера для выравнивания значений справа
+    // Используем ту же логику, что и для Environment слайдеров
+    // availableWidth - это ширина доступной области для секции Modifiers
+    // Вычисляем правую границу: начало секции (x) + доступная ширина минус место для значения
+    const valueDisplayWidth = 50; // Ширина для отображения значения
+    const gapAfterSlider = 10; // Отступ после слайдера перед значением
+    const sliderEndX = x + availableWidth - valueDisplayWidth - gapAfterSlider;
+    
+    // Ширина слайдера = фиксированная позиция конца - позиция начала
+    const sliderWidth = sliderEndX - sliderStartX;
+    
+    const slider = createNESSlider(
+      this,
+      this.contentContainer,
+      {
+      x,
+      y,
+      label,
+      value: this.levelConfig.roughness,
+      min: 0.05,
+      max: 1.0,
+      sliderStartX,
+      sliderWidth,
+      onChange: (value) => {
+        this.levelConfig.roughness = value;
       this.updatePreview();
-    });
+      },
+      }
+    );
+    
+    this.roughnessValueText = slider.valueText;
   }
 
   /**
@@ -514,15 +486,7 @@ export class LevelSelectScene extends Phaser.Scene {
     // Preview label with NES style (positioned above the preview box)
     const labelX = x + width / 2;
     const titleY = y - titleOffsetY;
-    const labelShadow = this.add.bitmapText(labelX + 2, titleY + 2, 'pixel-font', 'PREVIEW', 16);
-    labelShadow.setTintFill(0x000000);
-    labelShadow.setOrigin(0.5);
-
-    const label = this.add.bitmapText(labelX, titleY, 'pixel-font', 'PREVIEW', 16);
-    label.setTintFill(0xf1c40f);
-    label.setOrigin(0.5);
-    
-    this.contentContainer.add([labelShadow, label]);
+    createSectionTitle(this, this.contentContainer, labelX, titleY, 'PREVIEW', 16);
 
     // Preview border with NES style
     const previewBorder = this.add.graphics();
@@ -544,6 +508,192 @@ export class LevelSelectScene extends Phaser.Scene {
     this.previewY = containerY + y;
     this.previewWidth = width;
     this.previewHeight = height;
+  }
+
+  /**
+   * Create environment info display below preview with editable fields and internal padding
+   */
+  private createEnvironmentInfo(x: number, y: number, width: number): void {
+    const boxHeight = 240;
+    const padding = 25; // ← Внутренний отступ!
+
+    // Создаём панель с паддингом — она сама нарисует красивый фон и бордер
+    // x и y - это левый верхний угол, нужно преобразовать в центр
+    const panelCenterX = x + width / 2;
+    const panelCenterY = y + boxHeight / 2;
+    
+    const panel = createNESPanel(this, this.contentContainer, {
+      x: panelCenterX,  // центр панели
+      y: panelCenterY,  // центр панели
+      width,
+      height: boxHeight,
+      padding,           // ← вот он, твой внутренний отступ!
+    });
+
+    // Заголовок — уже внутри панели, с отступом
+    // Координаты относительно центра панели (0, 0)
+    createSectionTitle(this, panel.container, 0, -boxHeight / 2 + padding, 'ENVIRONMENT', 14);
+
+    // Получаем дефолтные эффекты
+    const defaultEffects = EnvironmentSystem.getEffects(
+      this.levelConfig.biome,
+      this.levelConfig.weather,
+      this.levelConfig.timeOfDay
+    );
+    const currentEffects = this.levelConfig.environmentEffects || defaultEffects;
+
+    // Вычисляем максимальную ширину label для выравнивания слайдеров
+    const labels = ['Wind X:', 'Wind Y:', 'Gravity:', 'Air Density:', 'Turbulence:'];
+    let maxLabelWidth = 0;
+    labels.forEach(label => {
+      const tempText = this.add.bitmapText(0, 0, 'pixel-font', label, NESTheme.defaultFontSize);
+      maxLabelWidth = Math.max(maxLabelWidth, tempText.width);
+      tempText.destroy();
+    });
+
+    // Вычисляем фиксированную позицию конца слайдера (правая граница)
+    // Все слайдеры должны заканчиваться на одной позиции для выравнивания значений справа
+    const valueDisplayWidth = 50; // Примерная ширина для отображения значения
+    const gapAfterSlider = 10; // Отступ после слайдера перед значением
+    const sliderEndX = width / 2 - padding - valueDisplayWidth - gapAfterSlider;
+    
+    // Фиксированная ширина слайдера будет вычисляться динамически для каждого слайдера
+    // на основе позиции начала (после label) и фиксированной позиции конца
+
+    // Начало контента — с учётом паддинга (относительно центра панели)
+    const startY = -boxHeight / 2 + padding + 30;
+    const spacing = 32;
+    const inputX = -width / 2 + padding;
+
+    // Все слайдеры теперь внутри panel.container
+    // Передаем фиксированную позицию конца слайдера для выравнивания значений справа
+    this.createEnvironmentSlider(
+      'Wind X:',
+      inputX,
+      startY,
+      currentEffects.windX,
+      -2,
+      2,
+      (v) => this.updateEnvironmentEffect('windX', v, defaultEffects),
+      'windX',
+      panel.container,
+      sliderEndX
+    );
+
+    this.createEnvironmentSlider(
+      'Wind Y:',
+      inputX,
+      startY + spacing,
+      currentEffects.windY,
+      -2,
+      2,
+      (v) => this.updateEnvironmentEffect('windY', v, defaultEffects),
+      'windY',
+      panel.container,
+      sliderEndX
+    );
+
+    this.createEnvironmentSlider(
+      'Gravity:',
+      inputX,
+      startY + spacing * 2,
+      currentEffects.gravity,
+      0.1,
+      2,
+      (v) => this.updateEnvironmentEffect('gravity', v, defaultEffects),
+      'gravity',
+      panel.container,
+      sliderEndX
+    );
+
+    this.createEnvironmentSlider(
+      'Air Density:',
+      inputX,
+      startY + spacing * 3,
+      currentEffects.airDensity,
+      0.1,
+      2,
+      (v) => this.updateEnvironmentEffect('airDensity', v, defaultEffects),
+      'airDensity',
+      panel.container,
+      sliderEndX
+    );
+
+    this.createEnvironmentSlider(
+      'Turbulence:',
+      inputX,
+      startY + spacing * 4,
+      currentEffects.turbulence,
+      0,
+      1,
+      (v) => this.updateEnvironmentEffect('turbulence', v, defaultEffects),
+      'turbulence',
+      panel.container,
+      sliderEndX
+    );
+  }
+
+  /**
+   * Вспомогательная функция — чтобы не дублировать логику
+   */
+  private updateEnvironmentEffect(
+    key: keyof NonNullable<ILevelConfig['environmentEffects']>,
+    value: number,
+    defaultEffects: ReturnType<typeof EnvironmentSystem.getEffects>
+  ): void {
+    if (!this.levelConfig.environmentEffects) {
+      this.levelConfig.environmentEffects = { ...defaultEffects };
+    }
+    this.levelConfig.environmentEffects[key] = value;
+    this.updatePreview();
+  }
+
+  /**
+   * Create a slider for environment parameter (Phaser native, NES style)
+   */
+  private createEnvironmentSlider(
+    label: string,
+    x: number,
+    y: number,
+    initialValue: number,
+    min: number,
+    max: number,
+    onChange: (value: number) => void,
+    key: 'windX' | 'windY' | 'gravity' | 'airDensity' | 'turbulence',
+    parentContainer: Phaser.GameObjects.Container,
+    sliderEndX?: number
+  ): void {
+    // Вычисляем ширину label для этого конкретного слайдера
+    const tempText = this.add.bitmapText(0, 0, 'pixel-font', label, NESTheme.defaultFontSize);
+    const labelWidth = tempText.width;
+    tempText.destroy();
+    
+    // Позиция начала слайдера = позиция контейнера (x) + ширина label + отступ
+    const gapAfterLabel = 15; // Увеличенный отступ между label и слайдером
+    const sliderStartX = x + labelWidth + gapAfterLabel;
+    
+    // Ширина слайдера = фиксированная позиция конца - позиция начала
+    // sliderEndX задается относительно центра панели, а sliderStartX относительно того же центра
+    const sliderWidth = sliderEndX !== undefined ? sliderEndX - sliderStartX : 150;
+    
+    const slider = createNESSlider(
+      this,
+      parentContainer,
+      {
+      x,
+      y,
+      label,
+      value: initialValue,
+      min,
+      max,
+      sliderStartX,
+      sliderWidth,
+      onChange,
+      }
+    );
+
+    // Store slider reference
+    this.environmentSliders[key] = { thumb: slider.thumb, valueText: slider.valueText };
   }
 
   /**
@@ -700,12 +850,31 @@ export class LevelSelectScene extends Phaser.Scene {
       
       if (this.levelConfig.weather === 'rain') {
         const rainColor = this.levelConfig.timeOfDay === 'day' ? 0x4477aa : 0xaaccff;
+        
+        // Get environment effects for wind calculation (use custom if set)
+        const defaultEffects = EnvironmentSystem.getEffects(
+          this.levelConfig.biome,
+          this.levelConfig.weather,
+          this.levelConfig.timeOfDay
+        );
+        const effects = this.levelConfig.environmentEffects || defaultEffects;
+        
+        // Calculate wind-based horizontal speed (same as in WeatherSystem)
+        const windX = effects.windX || 0;
+        const baseSpeedY = 3000; // Base vertical falling speed
+        const windSpeedMultiplier = 800; // How much wind affects horizontal speed
+        const speedX = windX * windSpeedMultiplier;
+        
+        // Calculate rotation angle for rain drops based on wind
+        const angleRad = Math.atan2(speedX, baseSpeedY);
+        const angleDeg = Phaser.Math.RadToDeg(angleRad);
+        
         this.previewWeatherEmitter = this.add.particles(weatherPreviewX, weatherPreviewY - 10, 'rain-drop', {
           x: { min: 0, max: previewWidth },
           y: 0,
-          lifespan: 1500,
-          speedY: { min: 300, max: 450 },
-          speedX: { min: 200, max: 300 },
+          lifespan: 800,
+          speedY: { min: baseSpeedY * 0.8, max: baseSpeedY * 1.2 },
+          speedX: { min: speedX * 0.8, max: speedX * 1.2 },
           scale: { start: 0.6, end: 0.5 },
           scaleY: { start: 1.0, end: 0.9 },
           alpha: { start: 1.0, end: 0.9 },
@@ -713,210 +882,191 @@ export class LevelSelectScene extends Phaser.Scene {
           frequency: 20,
           quantity: 3,
           blendMode: this.levelConfig.timeOfDay === 'day' ? 'NORMAL' : 'SCREEN',
-          gravityY: 200,
+          gravityY: 1600,
+          angle: angleDeg + 90, // Rotate sprite to match wind direction
         });
         this.previewWeatherEmitter.setMask(mask);
         this.previewWeatherEmitter.setDepth(101);
       } else if (this.levelConfig.weather === 'snow') {
+        // Get environment effects for wind calculation (use custom if set)
+        const defaultEffects = EnvironmentSystem.getEffects(
+          this.levelConfig.biome,
+          this.levelConfig.weather,
+          this.levelConfig.timeOfDay
+        );
+        const effects = this.levelConfig.environmentEffects || defaultEffects;
+        
+        // Calculate wind-based horizontal drift for snow (same as in WeatherSystem)
+        const windX = effects.windX || 0;
+        const snowWindMultiplier = 200; // Snow is lighter, so wind affects it more
+        const driftX = windX * snowWindMultiplier;
+        
         this.previewWeatherEmitter = this.add.particles(weatherPreviewX, weatherPreviewY - 10, 'weather-particle', {
           x: { min: 0, max: previewWidth },
           y: 0,
-          lifespan: 5000,
-          speedY: { min: 30, max: 60 },
-          speedX: { min: -20, max: 20 },
+          lifespan: 3000,
+          speedY: { min: 240, max: 480 }, // Faster falling (8x faster to match game speed)
+          speedX: { min: driftX * 0.7, max: driftX * 1.3 }, // Drift based on wind direction
           scale: { start: 1.5, end: 0.8 },
           alpha: { start: 1.0, end: 0.7 },
           tint: 0xffffff,
           frequency: 15,
           quantity: 2,
           blendMode: 'ADD',
-          gravityY: 20,
+          gravityY: 160, // Faster falling (8x faster)
         });
         this.previewWeatherEmitter.setMask(mask);
         this.previewWeatherEmitter.setDepth(101);
       }
     }
+    
+    // Update environment info
+    this.updateEnvironmentInfo();
+  }
+  
+  /**
+   * Update environment info sliders based on current config
+   */
+  private updateEnvironmentInfo(): void {
+    // Note: This method is called after scene restart, so sliders are recreated with new values
+    // Sliders automatically use currentEffects from createEnvironmentInfo()
   }
 
   /**
-   * Create seed input with random button
+   * Create seed control with +/- buttons and random button (NES style)
    */
   private createSeedInput(x: number, y: number): void {
     // Label with shadow (NES style)
-    const seedLabelShadow = this.add.bitmapText(x + 1, y + 1, 'pixel-font', 'Seed:', 12);
-    seedLabelShadow.setTintFill(0x000000);
-    seedLabelShadow.setOrigin(0, 0.5);
-
-    const seedLabel = this.add.bitmapText(x, y, 'pixel-font', 'Seed:', 12);
-    seedLabel.setTintFill(0xffffff);
-    seedLabel.setOrigin(0, 0.5);
+    createTextWithShadow(
+      this,
+      this.contentContainer,
+      x,
+      y,
+      'Seed:',
+      14,
+      NESColors.white,
+      0,
+      0.5
+    );
     
-    this.contentContainer.add([seedLabelShadow, seedLabel]);
+    // Вычисляем ширину label для позиционирования
+    const tempText = this.add.bitmapText(0, 0, 'pixel-font', 'Seed:', NESTheme.defaultFontSize);
+    const labelWidth = tempText.width;
+    tempText.destroy();
     
-    // Create HTML input element for seed
-    this.seedInputElement = document.createElement('input');
-    this.seedInputElement.type = 'text';
-    this.seedInputElement.value = Math.floor(this.previewSeed).toString();
+    const gapAfterLabel = 15; // Отступ после label
+    const valueX = x + labelWidth + gapAfterLabel;
+    const buttonSpacing = 10; // Отступ между кнопками
+    const buttonWidth = 32;
+    const buttonHeight = 24;
     
-    // Get canvas position for proper positioning (account for container position)
-    // Input height is 24px, so center it at y by offsetting by half height
-    const canvas = this.game.canvas;
-    const canvasRect = canvas.getBoundingClientRect();
-    const containerX = this.contentContainer.x;
-    const containerY = this.contentContainer.y;
-    const inputLeft = canvasRect.left + containerX + x + 100;
-    const inputTop = canvasRect.top + containerY + y - 12; // 12 = half of 24px height
+    // Отображение значения seed
+    const seedValue = Math.floor(this.previewSeed).toString();
     
-    this.seedInputElement.style.cssText = `
-      position: absolute;
-      left: ${inputLeft}px;
-      top: ${inputTop}px;
-      width: 120px;
-      height: 24px;
-      padding: 2px 6px;
-      font-size: 14px;
-      font-family: Arial, sans-serif;
-      background-color: #2a3a4e;
-      color: #ffffff;
-      border: 1px solid #4a5a6e;
-      border-radius: 3px;
-      outline: none;
-      box-sizing: border-box;
-    `;
+    // Вычисляем ширину значения seed ДО создания текста для правильного позиционирования кнопок
+    // Используем временный текст для измерения ширины
+    const tempSeedText = this.add.bitmapText(0, 0, 'pixel-font', seedValue, 14);
+    const seedValueWidth = tempSeedText.width;
+    tempSeedText.destroy();
     
-    // Add input to body (not canvas parent)
-    document.body.appendChild(this.seedInputElement);
+    const { shadow: seedShadow, text: seedText } = createTextWithShadow(
+      this,
+      this.contentContainer,
+      valueX,
+      y,
+      seedValue,
+      14,
+      NESColors.yellow,
+      0,
+      0.5
+    );
+    this.seedValueText = seedText;
+    this.seedValueShadow = seedShadow;
     
-    // Input change handler
-    this.seedInputElement.addEventListener('input', () => {
-      const value = this.seedInputElement.value.replace(/[^0-9]/g, ''); // Only numbers
-      this.seedInputElement.value = value;
-      
-      if (value) {
-        this.previewSeed = parseInt(value);
-        this.updatePreview();
+    // Отступ после значения seed перед кнопками (увеличен для лучшей визуальной разделенности)
+    const gapAfterValue = 30;
+    
+    // Кнопка "-" для уменьшения seed
+    // valueX - это левый край текста (origin 0), добавляем ширину текста + отступ
+    const minusButtonX = valueX + seedValueWidth + gapAfterValue;
+    createNESButton(
+      this,
+      this.contentContainer,
+      {
+        x: minusButtonX,
+        y,
+        width: buttonWidth,
+        height: buttonHeight,
+        text: '-',
+        onClick: () => {
+          this.previewSeed = Math.max(0, Math.floor(this.previewSeed) - 1);
+          this.updateSeedDisplay();
+          this.updatePreview();
+        },
       }
-    });
+    );
     
-    // Random button (positioned relative to input width, aligned with label) - NES style
-    const btnX = x + 100 + 130;
-    const btnWidth = 32;
-    const btnHeight = 24;
-    const btnNesYellow = 0xf1c40f;
-    const btnNesBlue = 0x3498db;
+    // Кнопка "+" для увеличения seed
+    const plusButtonX = minusButtonX + buttonWidth + buttonSpacing;
+    createNESButton(
+      this,
+      this.contentContainer,
+      {
+        x: plusButtonX,
+        y,
+        width: buttonWidth,
+        height: buttonHeight,
+        text: '+',
+        onClick: () => {
+          this.previewSeed = Math.floor(this.previewSeed) + 1;
+          this.updateSeedDisplay();
+          this.updatePreview();
+        },
+      }
+    );
     
-    const randomBtnContainer = this.add.container(btnX, y);
-    
-    // Background with NES style
-    const btnBg = this.add.graphics();
-    btnBg.fillStyle(0x34495e, 0.9);
-    btnBg.fillRoundedRect(0, -btnHeight / 2, btnWidth, btnHeight, 4);
-    btnBg.lineStyle(2, btnNesBlue, 1);
-    btnBg.strokeRoundedRect(0, -btnHeight / 2, btnWidth, btnHeight, 4);
-    
-    // Make graphics interactive with explicit hit area
-    btnBg.setInteractive({
-      hitArea: new Phaser.Geom.Rectangle(0, -btnHeight / 2, btnWidth, btnHeight),
-      hitAreaCallback: Phaser.Geom.Rectangle.Contains,
-      useHandCursor: true,
-    });
-    
-    // Pixel art dice icon (centered in button)
-    const diceIcon = PixelIconGenerator.createDiceIcon(this, btnWidth / 2, 0, 16);
-    
-    randomBtnContainer.add([btnBg, diceIcon]);
-    this.contentContainer.add(randomBtnContainer);
-    
-    btnBg.on('pointerover', () => {
-      btnBg.clear();
-      btnBg.fillStyle(0x5dade2, 0.9);
-      btnBg.fillRoundedRect(0, -btnHeight / 2, btnWidth, btnHeight, 4);
-      btnBg.lineStyle(2, btnNesYellow, 1);
-      btnBg.strokeRoundedRect(0, -btnHeight / 2, btnWidth, btnHeight, 4);
-    });
-    
-    btnBg.on('pointerout', () => {
-      btnBg.clear();
-      btnBg.fillStyle(0x34495e, 0.9);
-      btnBg.fillRoundedRect(0, -btnHeight / 2, btnWidth, btnHeight, 4);
-      btnBg.lineStyle(2, btnNesBlue, 1);
-      btnBg.strokeRoundedRect(0, -btnHeight / 2, btnWidth, btnHeight, 4);
-    });
-    
-    btnBg.on('pointerdown', () => {
-      this.previewSeed = Math.floor(Math.random() * 1000000);
-      this.seedInputElement.value = this.previewSeed.toString();
-      this.updatePreview();
-    });
+    // Кнопка Random (@)
+    const randomButtonX = plusButtonX + buttonWidth + buttonSpacing;
+    createNESButton(
+      this,
+      this.contentContainer,
+      {
+        x: randomButtonX,
+        y,
+        width: buttonWidth,
+        height: buttonHeight,
+        text: '@',
+        onClick: () => {
+          this.previewSeed = Math.floor(Math.random() * 1000000);
+          this.updateSeedDisplay();
+          this.updatePreview();
+        },
+      }
+    );
+  }
+  
+  /**
+   * Update seed value display
+   */
+  private updateSeedDisplay(): void {
+    if (this.seedValueText && this.seedValueShadow) {
+      const seedValue = Math.floor(this.previewSeed).toString();
+      this.seedValueText.setText(seedValue);
+      this.seedValueShadow.setText(seedValue); // Обновляем и тень тоже
+    }
   }
 
   /**
    * Create "Random All" button to randomize all settings (vertical layout with border like biomes)
    */
-  private createRandomAllButton(x: number, y: number, height: number): void {
-    const nesBlue = 0x3498db;
-    const btnWidth = 200;
-
-    // Container for the button
-    const container = this.add.container(x, y);
-
-    // Button background with NES style (like biomes)
-    const bg = this.add.graphics();
-    bg.fillStyle(0x2c3e50, 0.9);
-    bg.fillRoundedRect(-btnWidth / 2, 0, btnWidth, height, 8);
-    bg.lineStyle(2, nesBlue, 1);
-    bg.strokeRoundedRect(-btnWidth / 2, 0, btnWidth, height, 8);
-
-    bg.setInteractive({
-      hitArea: new Phaser.Geom.Rectangle(-btnWidth / 2, 0, btnWidth, height),
-      hitAreaCallback: Phaser.Geom.Rectangle.Contains,
-      useHandCursor: true,
-    });
-
-    // Calculate center position for content
-    const centerY = height / 2;
-
-    // Pixel art dice icon shadow
-    const diceIconShadow = PixelIconGenerator.createDiceIcon(this, 1, centerY - 20 + 1, 48, 0x000000);
-
-    // Pixel art dice icon
-    const diceIcon = PixelIconGenerator.createDiceIcon(this, 0, centerY - 20, 48);
-
-    // Text shadow
-    const textShadow = this.add.bitmapText(1, centerY + 25 + 1, 'pixel-font', 'Random', 12);
-    textShadow.setTintFill(0x000000);
-    textShadow.setOrigin(0.5, 0.5);
-
-    // Text
-    const text = this.add.bitmapText(0, centerY + 25, 'pixel-font', 'Random', 12);
-    text.setTintFill(0xffffff);
-    text.setOrigin(0.5, 0.5);
-
-    container.add([bg, diceIconShadow, diceIcon, textShadow, text]);
-    this.contentContainer.add(container);
-
-    // Hover effects
-    bg.on('pointerover', () => {
-      bg.clear();
-      bg.fillStyle(0x34495e, 0.9);
-      bg.fillRoundedRect(-btnWidth / 2, 0, btnWidth, height, 8);
-      bg.lineStyle(2, nesBlue, 1);
-      bg.strokeRoundedRect(-btnWidth / 2, 0, btnWidth, height, 8);
-      text.setTintFill(0xf1c40f);
-    });
-
-    bg.on('pointerout', () => {
-      bg.clear();
-      bg.fillStyle(0x2c3e50, 0.9);
-      bg.fillRoundedRect(-btnWidth / 2, 0, btnWidth, height, 8);
-      bg.lineStyle(2, nesBlue, 1);
-      bg.strokeRoundedRect(-btnWidth / 2, 0, btnWidth, height, 8);
-      text.setTintFill(0xffffff);
-    });
-
-    // Click handler - randomize everything
-    bg.on('pointerdown', () => {
-      this.randomizeAll();
+  private createRandomAllButton(x: number, y: number, width: number, height: number): void {
+    createNESButton(this, this.contentContainer, {
+      x,
+      y,
+      width,
+      height,
+      text: 'Randomize',
+      onClick: () => this.randomizeAll(),
     });
   }
 
@@ -946,7 +1096,6 @@ export class LevelSelectScene extends Phaser.Scene {
 
     // Random seed
     this.previewSeed = Math.floor(Math.random() * 1000000);
-    this.seedInputElement.value = this.previewSeed.toString();
 
     // Restart scene to apply all changes
     this.scene.restart();
@@ -959,58 +1108,17 @@ export class LevelSelectScene extends Phaser.Scene {
     // Calculate left-aligned position (like in main menu)
     const textX = x - 70; // Offset to center the button area
 
-    // Arrow cursor (hidden by default, shown on hover)
-    const arrow = this.add.graphics();
-    arrow.fillStyle(0xf1c40f);
-    arrow.lineStyle(2, 0x000000);
-    arrow.beginPath();
-    arrow.moveTo(textX - 30, y - 8);
-    arrow.lineTo(textX - 10, y);
-    arrow.lineTo(textX - 30, y + 8);
-    arrow.closePath();
-    arrow.fillPath();
-    arrow.strokePath();
-    arrow.setVisible(false); // Hidden by default, shown on hover
-
-    // Add blinking animation to arrow
-    this.time.addEvent({
-      delay: 500,
-      callback: () => {
-        if (arrow.visible) {
-          arrow.setAlpha(arrow.alpha === 1 ? 0.3 : 1);
-        }
-      },
-      loop: true,
-    });
-
-    // Text shadow (left-aligned like in main menu)
-    const startTextShadow = this.add.bitmapText(textX + 2, y + 2, 'pixel-font', 'START GAME', 18);
-    startTextShadow.setTintFill(0x000000);
-    startTextShadow.setOrigin(0, 0.5);
-
-    // Text in active state (yellow) by default
-    const text = this.add.bitmapText(textX, y, 'pixel-font', 'START GAME', 18);
-    text.setTintFill(0xf1c40f); // Yellow color (active state)
-    text.setOrigin(0, 0.5);
-
-    this.contentContainer.add([arrow, startTextShadow, text]);
-
-    // Make text interactive
-    text.setInteractive({ useHandCursor: true });
-
-    text.on('pointerover', () => {
-      arrow.setVisible(true);
-      arrow.setAlpha(1);
-      text.setTintFill(0xf1c40f);
-    });
-
-    text.on('pointerout', () => {
-      // Hide arrow on pointer out, but keep active color
-      arrow.setVisible(false);
-      text.setTintFill(0xf1c40f);
-    });
-
-    text.on('pointerdown', () => this.startGame());
+    createNESMenuButton(
+      this,
+      this.contentContainer,
+      {
+      x: textX,
+      y,
+      text: 'START GAME',
+      active: true,
+      onClick: () => this.startGame(),
+      }
+    );
   }
 
   /**
@@ -1020,59 +1128,20 @@ export class LevelSelectScene extends Phaser.Scene {
     // Calculate left-aligned position (like in main menu)
     const textX = x - 30; // Offset to center the button area
 
-    // Arrow cursor (initially hidden)
-    const arrow = this.add.graphics();
-    arrow.fillStyle(0xf1c40f);
-    arrow.lineStyle(2, 0x000000);
-    arrow.beginPath();
-    arrow.moveTo(textX - 30, y - 8);
-    arrow.lineTo(textX - 10, y);
-    arrow.lineTo(textX - 30, y + 8);
-    arrow.closePath();
-    arrow.fillPath();
-    arrow.strokePath();
-    arrow.setVisible(false);
-
-    // Add blinking animation to arrow
-    this.time.addEvent({
-      delay: 500,
-      callback: () => {
-        if (arrow.visible) {
-          arrow.setAlpha(arrow.alpha === 1 ? 0.3 : 1);
-        }
-      },
-      loop: true,
-    });
-
-    // Text shadow (left-aligned like in main menu)
-    const backTextShadow = this.add.bitmapText(textX + 2, y + 2, 'pixel-font', 'BACK', 18);
-    backTextShadow.setTintFill(0x000000);
-    backTextShadow.setOrigin(0, 0.5);
-
-    const text = this.add.bitmapText(textX, y, 'pixel-font', 'BACK', 18);
-    text.setTintFill(0xffffff);
-    text.setOrigin(0, 0.5);
-
-    this.contentContainer.add([arrow, backTextShadow, text]);
-
-    // Make text interactive
-    text.setInteractive({ useHandCursor: true });
-
-    text.on('pointerover', () => {
-      arrow.setVisible(true);
-      arrow.setAlpha(1);
-      text.setTintFill(0xf1c40f);
-    });
-
-    text.on('pointerout', () => {
-      arrow.setVisible(false);
-      text.setTintFill(0xffffff);
-    });
-
-    text.on('pointerdown', () => {
+    createNESMenuButton(
+      this,
+      this.contentContainer,
+      {
+      x: textX,
+      y,
+      text: 'BACK',
+      active: false,
+      onClick: () => {
       // Don't stop music when going back to menu - let MenuScene handle it
       this.scene.start('MenuScene');
-    });
+      },
+      }
+    );
   }
 
   /**
@@ -1173,12 +1242,11 @@ export class LevelSelectScene extends Phaser.Scene {
   }
 
   /**
-   * Clean up HTML elements when scene is shut down
+   * Clean up when scene is shut down
    */
   shutdown(): void {
-    if (this.seedInputElement && this.seedInputElement.parentElement) {
-      this.seedInputElement.parentElement.removeChild(this.seedInputElement);
-    }
+    // Clean up environment sliders (Phaser objects are automatically destroyed with scene)
+    this.environmentSliders = {};
     
     // Clean up weather emitter
     if (this.previewWeatherEmitter) {
