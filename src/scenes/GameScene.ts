@@ -158,7 +158,7 @@ export class GameScene extends Phaser.Scene {
 
     // Create weather effects (system manages itself, no need to store reference)
     if (levelConfig.weather !== 'none') {
-      new WeatherSystem(this, levelConfig.weather, levelConfig.timeOfDay, this.environmentEffects);
+      new WeatherSystem(this, levelConfig.weather, levelConfig.timeOfDay, this.environmentEffects, this.terrainSystem);
     }
 
     if (this.gameMode === GameMode.Solo) {

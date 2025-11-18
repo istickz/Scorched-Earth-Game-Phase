@@ -1,5 +1,6 @@
 import Phaser from 'phaser';
 import type { WeatherType, TimeOfDay, IEnvironmentEffects } from '@/types';
+import type { TerrainSystem } from './TerrainSystem';
 
 /**
  * Weather system for rain and snow effects
@@ -10,17 +11,20 @@ export class WeatherSystem {
   private timeOfDay: TimeOfDay;
   private particleEmitter?: Phaser.GameObjects.Particles.ParticleEmitter;
   private environmentEffects?: IEnvironmentEffects;
+  private terrainSystem: TerrainSystem;
 
   constructor(
     scene: Phaser.Scene, 
     weatherType: WeatherType, 
     timeOfDay: TimeOfDay = 'day',
-    environmentEffects?: IEnvironmentEffects
+    environmentEffects: IEnvironmentEffects | undefined,
+    terrainSystem: TerrainSystem
   ) {
     this.scene = scene;
     this.weatherType = weatherType;
     this.timeOfDay = timeOfDay;
     this.environmentEffects = environmentEffects;
+    this.terrainSystem = terrainSystem;
     
     if (weatherType !== 'none') {
       this.createWeatherParticles();
@@ -99,6 +103,15 @@ export class WeatherSystem {
       blendMode: this.timeOfDay === 'day' ? 'NORMAL' : 'SCREEN', // Different blend for day/night
       gravityY: 1600, // Fast gravity for natural acceleration (8x faster)
       angle: angleDeg + 90, // Rotate sprite to match wind direction (+90 because sprite is vertical by default)
+      deathZone: {
+        type: 'onEnter',
+        source: {
+          contains: (x: number, y: number) => {
+            const terrainHeight = this.terrainSystem.getHeightAt(x);
+            return y >= terrainHeight;
+          }
+        }
+      }
     });
 
     this.particleEmitter.setDepth(100); // Above everything
@@ -126,6 +139,15 @@ export class WeatherSystem {
       quantity: 2, // More particles per emission
       blendMode: 'ADD',
       gravityY: 160, // Faster falling (8x faster)
+      deathZone: {
+        type: 'onEnter',
+        source: {
+          contains: (x: number, y: number) => {
+            const terrainHeight = this.terrainSystem.getHeightAt(x);
+            return y >= terrainHeight;
+          }
+        }
+      }
     });
 
     this.particleEmitter.setDepth(100); // Above everything

@@ -5,7 +5,6 @@ import { ProgressManager } from '@/utils/ProgressManager';
 import {
   createNESContainer,
   createTextWithShadow,
-  createSectionTitle,
   createNESButton,
   createNESMenuButton,
   NESColors,

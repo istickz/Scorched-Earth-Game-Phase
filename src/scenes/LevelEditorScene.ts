@@ -43,6 +43,7 @@ export class LevelEditorScene extends Phaser.Scene {
   private previewY!: number;
   private previewWidth!: number;
   private previewHeight!: number;
+  private previewTerrainPoints: Phaser.Geom.Point[] = [];
   private contentContainer!: Phaser.GameObjects.Container;
   private environmentSliders: {
     windX?: { thumb: Phaser.GameObjects.Arc; valueText: Phaser.GameObjects.BitmapText };
@@ -54,6 +55,27 @@ export class LevelEditorScene extends Phaser.Scene {
 
   constructor() {
     super({ key: 'LevelEditorScene' });
+  }
+
+  /**
+   * Get preview terrain height at given X coordinate
+   */
+  private getPreviewTerrainHeight(x: number): number {
+    if (this.previewTerrainPoints.length === 0) {
+      return this.previewHeight;
+    }
+    
+    // Find closest point or interpolate between two points
+    const step = 3; // Points are generated every 3 pixels
+    const index = Math.floor(x / step);
+    
+    if (index < 0) {
+      return this.previewTerrainPoints[0].y;
+    } else if (index >= this.previewTerrainPoints.length) {
+      return this.previewTerrainPoints[this.previewTerrainPoints.length - 1].y;
+    }
+    
+    return this.previewTerrainPoints[index].y;
   }
 
   create(): void {
@@ -726,7 +748,7 @@ export class LevelEditorScene extends Phaser.Scene {
     this.previewGraphics.fillStyle(colors.ground, 1);
     
     const terrainStartY = previewHeight * 0.6;
-    const points: Phaser.Geom.Point[] = [];
+    this.previewTerrainPoints = [];
     
     // Generate preview terrain using fractal noise (same as in game)
     for (let x = 0; x <= previewWidth; x += 3) {
@@ -774,14 +796,14 @@ export class LevelEditorScene extends Phaser.Scene {
       // terrainStartY is the base line, waveHeight can go up or down from it
       // But we need to ensure it doesn't go above 0 (top of preview) or below previewHeight (bottom)
       const y = Phaser.Math.Clamp(terrainStartY + waveHeight, 0, previewHeight);
-      points.push(new Phaser.Geom.Point(x, y));
+      this.previewTerrainPoints.push(new Phaser.Geom.Point(x, y));
     }
 
     // Draw terrain shape
     this.previewGraphics.beginPath();
     this.previewGraphics.moveTo(0, terrainStartY);
     
-    points.forEach(point => {
+    this.previewTerrainPoints.forEach(point => {
       this.previewGraphics.lineTo(point.x, point.y);
     });
     
@@ -796,11 +818,11 @@ export class LevelEditorScene extends Phaser.Scene {
       this.previewGraphics.beginPath();
       this.previewGraphics.moveTo(0, terrainStartY);
       
-      points.forEach(point => {
+      this.previewTerrainPoints.forEach(point => {
         this.previewGraphics.lineTo(point.x, point.y - 3);
       });
       
-      this.previewGraphics.lineTo(previewWidth, points[points.length - 1].y - 3);
+      this.previewGraphics.lineTo(previewWidth, this.previewTerrainPoints[this.previewTerrainPoints.length - 1].y - 3);
       this.previewGraphics.lineTo(previewWidth, previewHeight);
       this.previewGraphics.lineTo(0, previewHeight);
       this.previewGraphics.closePath();
@@ -884,6 +906,18 @@ export class LevelEditorScene extends Phaser.Scene {
           blendMode: this.levelConfig.timeOfDay === 'day' ? 'NORMAL' : 'SCREEN',
           gravityY: 1600,
           angle: angleDeg + 90, // Rotate sprite to match wind direction
+          deathZone: {
+            type: 'onEnter',
+            source: {
+              contains: (x: number, y: number) => {
+                // Convert from world coordinates to preview-local coordinates
+                const localX = x - weatherPreviewX;
+                const localY = y - weatherPreviewY;
+                const terrainHeight = this.getPreviewTerrainHeight(localX);
+                return localY >= terrainHeight;
+              }
+            }
+          }
         });
         this.previewWeatherEmitter.setMask(mask);
         this.previewWeatherEmitter.setDepth(101);
@@ -914,6 +948,18 @@ export class LevelEditorScene extends Phaser.Scene {
           quantity: 2,
           blendMode: 'ADD',
           gravityY: 160, // Faster falling (8x faster)
+          deathZone: {
+            type: 'onEnter',
+            source: {
+              contains: (x: number, y: number) => {
+                // Convert from world coordinates to preview-local coordinates
+                const localX = x - weatherPreviewX;
+                const localY = y - weatherPreviewY;
+                const terrainHeight = this.getPreviewTerrainHeight(localX);
+                return localY >= terrainHeight;
+              }
+            }
+          }
         });
         this.previewWeatherEmitter.setMask(mask);
         this.previewWeatherEmitter.setDepth(101);
