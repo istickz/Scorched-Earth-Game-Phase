@@ -36,7 +36,7 @@ export class EnvironmentSystem {
       case TerrainBiome.VOLCANIC:
         effects.gravity = 1.2; // increased gravity (heavy planet?)
         effects.airDensity = 0.6; // thin air from heat
-        effects.turbulence = 0.3; // turbulence from hot air
+        // effects.turbulence = 0.3; // turbulence from hot air
         break;
 
       case TerrainBiome.TEMPERATE:
@@ -48,13 +48,13 @@ export class EnvironmentSystem {
     switch (weather) {
       case 'rain':
         effects.windX += 0.3;
-        effects.turbulence += 0.2;
+        // effects.turbulence += 0.2;
         effects.airDensity += 0.1; // humid air is denser
         break;
 
       case 'snow':
         effects.windX += 0.4;
-        effects.turbulence += 0.15;
+        // effects.turbulence += 0.15;
         effects.airDensity += 0.15;
         break;
 

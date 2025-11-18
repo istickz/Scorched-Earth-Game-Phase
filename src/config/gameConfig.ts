@@ -3,6 +3,7 @@ import { BootScene } from '@/scenes/BootScene';
 import { MenuScene } from '@/scenes/MenuScene';
 import { GameScene } from '@/scenes/GameScene';
 import { MultiplayerLobbyScene } from '@/scenes/MultiplayerLobbyScene';
+import { LevelEditorScene } from '@/scenes/LevelEditorScene';
 import { LevelSelectScene } from '@/scenes/LevelSelectScene';
 
 /**
@@ -55,7 +56,7 @@ export const gameConfig: Phaser.Types.Core.GameConfig = {
       enableSleeping: false,
     },
   },
-  scene: [BootScene, MenuScene, MultiplayerLobbyScene, LevelSelectScene, GameScene],
+  scene: [BootScene, MenuScene, MultiplayerLobbyScene, LevelEditorScene, LevelSelectScene, GameScene],
   scale: {
     mode: Phaser.Scale.RESIZE, // RESIZE fills the entire container without black bars
     autoCenter: Phaser.Scale.CENTER_BOTH,

@@ -33,6 +33,19 @@ export class MenuScene extends Phaser.Scene {
     super({ key: 'MenuScene' });
   }
 
+  init(data?: { showDifficultyMenu?: boolean; selectedDifficulty?: AIDifficulty }): void {
+    // If returning from LevelSelectScene, show difficulty menu
+    if (data?.showDifficultyMenu) {
+      this.isDifficultyMenu = true;
+      // Set selected index based on difficulty
+      const difficultyIndex = data.selectedDifficulty === 'easy' ? 0 : data.selectedDifficulty === 'medium' ? 1 : 2;
+      this.selectedIndex = difficultyIndex;
+    } else {
+      this.isDifficultyMenu = false;
+      this.selectedIndex = 0;
+    }
+  }
+
   create(): void {
     const width = this.cameras.main.width;
     const height = this.cameras.main.height;
@@ -53,9 +66,9 @@ export class MenuScene extends Phaser.Scene {
 
     // Define difficulty options (difficulties first, then BACK at the bottom)
     this.difficultyOptions = [
-      { text: 'EASY', callback: () => this.startGame(GameMode.Solo, 'easy') },
-      { text: 'MEDIUM', callback: () => this.startGame(GameMode.Solo, 'medium') },
-      { text: 'HARD', callback: () => this.startGame(GameMode.Solo, 'hard') },
+      { text: 'EASY', callback: () => this.showLevelSelect('easy') },
+      { text: 'MEDIUM', callback: () => this.showLevelSelect('medium') },
+      { text: 'HARD', callback: () => this.showLevelSelect('hard') },
       { text: 'BACK', callback: () => this.hideDifficultyMenu() },
     ];
 
@@ -70,6 +83,22 @@ export class MenuScene extends Phaser.Scene {
     this.input.keyboard!.on('keydown-DOWN', this.moveSelectionDown, this);
     this.input.keyboard!.on('keydown-ENTER', this.selectOption, this);
     this.input.keyboard!.on('keydown-SPACE', this.selectOption, this);
+
+    // If difficulty menu should be shown, create it now
+    if (this.isDifficultyMenu) {
+      // Hide main menu container
+      if (this.mainMenuContainer) {
+        this.mainMenuContainer.setVisible(false);
+      }
+      if (this.cursorGraphics) {
+        // Сбрасываем альфу перед скрытием, чтобы при показе курсор был ярким
+        this.cursorGraphics.setAlpha(1);
+        this.cursorGraphics.setVisible(false);
+      }
+      
+      // Create difficulty menu
+      this.createDifficultyMenu(width / 2, height / 2 + 40);
+    }
 
     // Update menu display
     this.updateMenuDisplay();
@@ -223,9 +252,22 @@ export class MenuScene extends Phaser.Scene {
     );
 
     // Version badge
+    // Graphics coordinates inside container are relative to container center (0, 0)
+    // Badge center should be at (width/2, titleY + 90) relative to container center
+    // fillRoundedRect uses top-left corner, so we need: centerX - width/2, centerY - height/2
+    const badgeCenterX = width / 2;
+    const badgeCenterY = titleY + 90;
+    const badgeWidth = 100;
+    const badgeHeight = 25;
     const versionBg = this.add.graphics();
     versionBg.fillStyle(NESColors.gray);
-    versionBg.fillRoundedRect(width / 2 - 50, titleY + 90, 100, 25, 5);
+    versionBg.fillRoundedRect(
+      badgeCenterX - badgeWidth / 2,  // Relative to container center
+      badgeCenterY - badgeHeight / 2, // Relative to container center
+      badgeWidth,
+      badgeHeight,
+      5
+    );
     titleContainer.add(versionBg);
     
     createTextWithShadow(
@@ -252,6 +294,7 @@ export class MenuScene extends Phaser.Scene {
 
     // Create menu box with NES-style border
     const boxContainer = createNESContainer(this, x, y, boxWidth, boxHeight);
+    boxContainer.setDepth(100); // Set depth below cursor (cursor is 1000)
     this.mainMenuContainer = boxContainer; // Save reference to hide/show later
 
     // Title text with shadow (bitmap font)
@@ -328,6 +371,8 @@ export class MenuScene extends Phaser.Scene {
     // Store graphics for cursor
     this.cursorGraphics = cursorGraphics;
     cursorGraphics.setPosition(x, y);
+    // Set high depth to ensure cursor is always on top of menu containers
+    cursorGraphics.setDepth(1000);
   }
 
   /**
@@ -351,8 +396,12 @@ export class MenuScene extends Phaser.Scene {
 
     // Update cursor position
     if (this.cursorGraphics) {
+      // Сбрасываем альфу курсора при каждом обновлении отображения
+      this.cursorGraphics.setAlpha(1);
       this.cursorGraphics.setPosition(cursorX, baseCursorY + this.selectedIndex * 50);
       this.cursorGraphics.setVisible(true);
+      // Ensure cursor depth is always on top
+      this.cursorGraphics.setDepth(1000);
     }
 
     // Update text colors (bitmap text uses setTintFill)
@@ -450,6 +499,8 @@ export class MenuScene extends Phaser.Scene {
       this.mainMenuContainer.setVisible(false);
     }
     if (this.cursorGraphics) {
+      // Сбрасываем альфу перед скрытием, чтобы при показе курсор был ярким
+      this.cursorGraphics.setAlpha(1);
       this.cursorGraphics.setVisible(false);
     }
     
@@ -495,6 +546,7 @@ export class MenuScene extends Phaser.Scene {
 
     // Create menu box with NES-style border
     const boxContainer = createNESContainer(this, x, y, boxWidth, boxHeight);
+    boxContainer.setDepth(100); // Set depth below cursor (cursor is 1000)
     this.difficultyMenuContainer = boxContainer;
 
     // Title text with shadow (bitmap font)
@@ -544,16 +596,29 @@ export class MenuScene extends Phaser.Scene {
   }
 
   /**
+   * Show level selection screen for singleplayer
+   */
+  private showLevelSelect(difficulty: AIDifficulty): void {
+    // Don't stop music - let LevelSelectScene continue playing it
+    this.scene.start('LevelSelectScene', {
+      difficulty: difficulty,
+    });
+  }
+
+  /**
    * Start the game with the selected mode and difficulty
+   * (Kept for backward compatibility, but not used for singleplayer anymore)
    */
   private startGame(mode: GameMode, difficulty: AIDifficulty = 'medium'): void {
     // Stop menu music before starting game
     this.stopMenuMusic();
     
-    // Pass game mode and difficulty to GameScene
+    // Pass game mode, difficulty, and level index to GameScene
+    // For singleplayer, start at level 0 (first predefined level)
     this.scene.start('GameScene', {
       gameMode: mode,
       aiDifficulty: difficulty,
+      levelIndex: mode === GameMode.Solo ? 0 : undefined,
     });
   }
 
@@ -571,8 +636,8 @@ export class MenuScene extends Phaser.Scene {
    * Start local multiplayer (2 players on same computer)
    */
   private startLocalMultiplayer(): void {
-    // Don't stop music - let LevelSelectScene continue playing it
-    this.scene.start('LevelSelectScene');
+    // Don't stop music - let LevelEditorScene continue playing it
+    this.scene.start('LevelEditorScene');
   }
 
   /**

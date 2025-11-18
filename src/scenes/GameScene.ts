@@ -12,6 +12,8 @@ import { AudioSystem } from '@/systems/AudioSystem';
 import { BiomeSystem } from '@/systems/BiomeSystem';
 import { WeatherSystem } from '@/systems/WeatherSystem';
 import { EnvironmentSystem } from '@/systems/EnvironmentSystem';
+import { SINGLEPLAYER_LEVELS } from '@/config/levels';
+import { ProgressManager } from '@/utils/ProgressManager';
 
 /**
  * Main game scene
@@ -51,12 +53,14 @@ export class GameScene extends Phaser.Scene {
 
   private aiDifficulty: AIDifficulty = 'medium';
   private levelConfig?: ILevelConfig;
+  private currentLevelIndex: number = 0;
 
   init(data: { 
     gameMode?: GameMode; 
     webrtcManager?: WebRTCManager; 
     aiDifficulty?: AIDifficulty;
     levelConfig?: ILevelConfig;
+    levelIndex?: number;
   }): void {
     this.gameMode = data?.gameMode || GameMode.Solo;
     this.webrtcManager = data?.webrtcManager;
@@ -64,6 +68,9 @@ export class GameScene extends Phaser.Scene {
     
     // Сохраняем конфигурацию уровня для использования в create()
     this.levelConfig = data?.levelConfig;
+    
+    // Сохраняем индекс уровня для singleplayer режима
+    this.currentLevelIndex = data?.levelIndex ?? 0;
     
     // Сбрасываем все игровые состояния при инициализации/перезапуске
     this.gameOver = false;
@@ -86,8 +93,19 @@ export class GameScene extends Phaser.Scene {
     // Matter.js is now only used for tanks, not for projectiles
     // Projectiles use manual physics simulation with EnvironmentSystem
 
-    // Use provided config or create random one
-    const levelConfig: ILevelConfig = this.levelConfig || this.createRandomLevelConfig();
+    // Use provided config, predefined level for singleplayer, or create random one
+    let levelConfig: ILevelConfig;
+    if (this.levelConfig) {
+      // Explicitly provided config (from LevelEditorScene for local multiplayer)
+      levelConfig = this.levelConfig;
+    } else if (this.gameMode === GameMode.Solo) {
+      // Singleplayer mode: use predefined levels
+      const levelIndex = Math.min(this.currentLevelIndex, SINGLEPLAYER_LEVELS.length - 1);
+      levelConfig = SINGLEPLAYER_LEVELS[levelIndex];
+    } else {
+      // Multiplayer or other modes: use random generation
+      levelConfig = this.createRandomLevelConfig();
+    }
     
     // Use seed from config if provided, otherwise generate random
     const terrainSeed = levelConfig.seed !== undefined ? levelConfig.seed : Math.random() * 1000000;
@@ -101,8 +119,10 @@ export class GameScene extends Phaser.Scene {
       levelConfig.weather,
       levelConfig.timeOfDay
     );
+    // Merge defaults with custom effects (custom effects override defaults)
+    // This allows levels 11+ to override windX while keeping biome/weather effects
     this.environmentEffects = levelConfig.environmentEffects 
-      ? { ...levelConfig.environmentEffects }
+      ? { ...defaultEffects, ...levelConfig.environmentEffects }
       : { ...defaultEffects };
 
     // Add random wind variation for each game
@@ -260,12 +280,20 @@ export class GameScene extends Phaser.Scene {
       modeText = 'Local Multiplayer';
     }
     
+    // Add level number for singleplayer mode
+    let levelText = '';
+    if (this.gameMode === GameMode.Solo) {
+      const levelNumber = this.currentLevelIndex + 1;
+      const totalLevels = SINGLEPLAYER_LEVELS.length;
+      levelText = ` | Level ${levelNumber}/${totalLevels}`;
+    }
+    
     const isAITurn = this.gameMode === GameMode.Solo && this.currentPlayerIndex === 1;
     const playerText = isAITurn ? 'AI Thinking...' : `Player ${this.currentPlayerIndex + 1}`;
     const angleText = `Angle: ${currentTank.getTurretAngle().toFixed(0)}°`;
     const powerText = `Power: ${currentTank.getPower().toFixed(0)}%`;
 
-    const uiTextStr = `${modeText} | ${playerText} | ${angleText} | ${powerText}`;
+    const uiTextStr = `${modeText}${levelText} | ${playerText} | ${angleText} | ${powerText}`;
     this.uiText.setText(uiTextStr);
     this.uiTextShadow.setText(uiTextStr);
   }
@@ -690,11 +718,84 @@ export class GameScene extends Phaser.Scene {
     if (aliveTanks.length === 1) {
       this.gameOver = true;
       const winnerIndex = this.tanks.findIndex((tank) => tank.isAlive());
+      
+      // For singleplayer mode, check if player won and advance to next level
+      if (this.gameMode === GameMode.Solo && winnerIndex === 0) {
+        // Player won - save progress and advance to next level
+        ProgressManager.completeLevel(this.aiDifficulty, this.currentLevelIndex);
+        
+        const nextLevelIndex = this.currentLevelIndex + 1;
+        if (nextLevelIndex < SINGLEPLAYER_LEVELS.length) {
+          this.showLevelComplete(nextLevelIndex);
+        } else {
+          // All levels completed
+          this.showGameOver('Congratulations! All Levels Completed!');
+        }
+      } else {
+        // AI won or other modes
       this.showGameOver(`Player ${winnerIndex + 1} Wins!`);
+      }
     } else if (aliveTanks.length === 0) {
       this.gameOver = true;
       this.showGameOver('Draw!');
     }
+  }
+
+  private showLevelComplete(nextLevelIndex: number): void {
+    const width = this.cameras.main.width;
+    const height = this.cameras.main.height;
+
+    // Level complete message with shadow (bitmap font)
+    const message = 'Level Complete!';
+    const messageShadow = this.add.bitmapText(width / 2 + 3, height / 2 - 20 + 3, 'pixel-font', message, 48);
+    messageShadow.setTintFill(0x000000);
+    messageShadow.setOrigin(0.5);
+
+    const messageText = this.add.bitmapText(width / 2, height / 2 - 20, 'pixel-font', message, 48);
+    messageText.setTintFill(0x00ff00); // Green color for success
+    messageText.setOrigin(0.5);
+
+    // Next level info
+    const nextLevelMsg = `Next: Level ${nextLevelIndex + 1}/${SINGLEPLAYER_LEVELS.length}`;
+    const nextLevelShadow = this.add.bitmapText(width / 2 + 2, height / 2 + 30 + 2, 'pixel-font', nextLevelMsg, 24);
+    nextLevelShadow.setTintFill(0x000000);
+    nextLevelShadow.setOrigin(0.5);
+
+    const nextLevelText = this.add.bitmapText(width / 2, height / 2 + 30, 'pixel-font', nextLevelMsg, 24);
+    nextLevelText.setTintFill(0xffffff);
+    nextLevelText.setOrigin(0.5);
+
+    // Press SPACE text with shadow (bitmap font)
+    const continueShadow = this.add.bitmapText(width / 2 + 2, height / 2 + 62 + 2, 'pixel-font', 'Press SPACE to continue', 24);
+    continueShadow.setTintFill(0x000000);
+    continueShadow.setOrigin(0.5);
+
+    const continueText = this.add.bitmapText(width / 2, height / 2 + 62, 'pixel-font', 'Press SPACE to continue', 24);
+    continueText.setTintFill(0xffff00); // Yellow color
+    continueText.setOrigin(0.5);
+
+    // Press R text with shadow (bitmap font)
+    const restartShadow = this.add.bitmapText(width / 2 + 2, height / 2 + 92 + 2, 'pixel-font', 'Press R to restart level', 20);
+    restartShadow.setTintFill(0x000000);
+    restartShadow.setOrigin(0.5);
+
+    const restartText = this.add.bitmapText(width / 2, height / 2 + 92, 'pixel-font', 'Press R to restart level', 20);
+    restartText.setTintFill(0xaaaaaa);
+    restartText.setOrigin(0.5);
+
+    this.input.keyboard?.once('keydown-SPACE', () => {
+      // Advance to next level
+      this.scene.start('GameScene', {
+        gameMode: this.gameMode,
+        aiDifficulty: this.aiDifficulty,
+        levelIndex: nextLevelIndex,
+      });
+    });
+
+    this.input.keyboard?.once('keydown-R', () => {
+      // Restart current level
+      this.scene.restart();
+    });
   }
 
   private showGameOver(message: string): void {
@@ -718,6 +819,21 @@ export class GameScene extends Phaser.Scene {
     const restartText = this.add.bitmapText(width / 2, height / 2 + 60, 'pixel-font', 'Press R to restart', 24);
     restartText.setTintFill(0xffffff);
     restartText.setOrigin(0.5);
+
+    // For singleplayer, also show option to return to menu
+    if (this.gameMode === GameMode.Solo) {
+      const menuShadow = this.add.bitmapText(width / 2 + 2, height / 2 + 92 + 2, 'pixel-font', 'Press M to return to menu', 20);
+      menuShadow.setTintFill(0x000000);
+      menuShadow.setOrigin(0.5);
+
+      const menuText = this.add.bitmapText(width / 2, height / 2 + 92, 'pixel-font', 'Press M to return to menu', 20);
+      menuText.setTintFill(0xaaaaaa);
+      menuText.setOrigin(0.5);
+
+      this.input.keyboard?.once('keydown-M', () => {
+        this.scene.start('MenuScene');
+      });
+    }
 
     this.input.keyboard?.once('keydown-R', () => {
       this.scene.restart();

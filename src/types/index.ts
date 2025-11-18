@@ -101,7 +101,7 @@ export interface ILevelConfig {
   timeOfDay: TimeOfDay;
   season: Season;
   seed?: number; // Optional seed for terrain generation
-  environmentEffects?: IEnvironmentEffects; // Optional custom environment effects (overrides biome defaults)
+  environmentEffects?: Partial<IEnvironmentEffects>; // Optional custom environment effects (overrides biome defaults, partial allows overriding only specific properties)
 }
 
 /**
