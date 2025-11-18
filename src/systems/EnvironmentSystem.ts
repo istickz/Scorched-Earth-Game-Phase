@@ -13,7 +13,7 @@ export class EnvironmentSystem {
     weather: WeatherType,
     timeOfDay: TimeOfDay
   ): IEnvironmentEffects {
-    let effects: IEnvironmentEffects = {
+    const effects: IEnvironmentEffects = {
       windX: 0,
       windY: 0,
       gravity: 1.0,

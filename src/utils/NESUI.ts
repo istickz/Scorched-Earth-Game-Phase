@@ -259,8 +259,11 @@ export function createNESButton(
   
   if (icon) {
     // Центрируем иконку относительно центра контейнера (0, 0)
-    if ('setPosition' in icon && typeof (icon as any).setPosition === 'function') {
-      (icon as any).setPosition(0, height < 40 ? 0 : -20); // -20 = иконка выше текста
+    type GameObjectWithSetPosition = Phaser.GameObjects.GameObject & {
+      setPosition: (x: number, y: number) => void;
+    };
+    if ('setPosition' in icon && typeof (icon as GameObjectWithSetPosition).setPosition === 'function') {
+      (icon as GameObjectWithSetPosition).setPosition(0, height < 40 ? 0 : -20); // -20 = иконка выше текста
     }
     buttonContainer.add(icon);
   }
