@@ -2,6 +2,7 @@ import Phaser from 'phaser';
 import { type AIDifficulty, type IAIShotResult } from '@/types';
 import { Tank } from '@/entities/Tank';
 import { TerrainSystem } from './TerrainSystem';
+import { calculateInitialVelocity } from '@/utils/physicsUtils';
 
 /**
  * AI system for bot opponents
@@ -265,12 +266,9 @@ export class AISystem {
     angle: number,
     power: number
   ): { x: number; y: number } {
-    const angleRad = Phaser.Math.DegToRad(angle);
     // Match projectile velocity (50 multiplier, same as Projectile class)
-    const velocity = (power / 100) * 50;
-    const velocityX = Math.cos(angleRad) * velocity;
-    const velocityY = Math.sin(angleRad) * velocity;
-
+    const { velocityX, velocityY } = calculateInitialVelocity(angle, power);
+    
     let x = startX;
     let y = startY;
     let vx = velocityX;

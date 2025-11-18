@@ -30,16 +30,19 @@ export class ExplosionSystem {
    * Create explosion at specified location
    */
   public explode(x: number, y: number, radius: number, damage: number = 50, ownerId?: string): void {
-    // Create explosion particles
+    // Create explosion particles FIRST (visual feedback - appears immediately)
     this.createExplosionParticles(x, y, radius);
 
-    // Destroy terrain
-    this.terrainSystem.destroyCrater(x, y, radius);
+    // Emit explosion event for damage calculation (needed immediately for tank damage)
+    this.scene.events.emit('explosion', { x, y, radius, damage, ownerId });
+
+    // Defer terrain destruction/redraw to next frame to avoid blocking rendering
+    // This ensures explosion particles appear immediately while terrain redraw happens asynchronously
+    this.scene.time.delayedCall(0, () => {
+      this.terrainSystem.destroyCrater(x, y, radius);
+    });
 
     // Screen shake disabled for better performance
-
-    // Emit explosion event for damage calculation
-    this.scene.events.emit('explosion', { x, y, radius, damage, ownerId });
   }
 
   /**

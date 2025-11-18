@@ -1,5 +1,6 @@
 import Phaser from 'phaser';
 import { type IProjectileConfig, type IEnvironmentEffects } from '@/types';
+import { calculateInitialVelocity } from '@/utils/physicsUtils';
 
 /**
  * Projectile entity with manual ballistic physics
@@ -37,10 +38,9 @@ export class Projectile extends Phaser.GameObjects.Sprite {
     };
 
     // Calculate initial velocity
-    const angleRad = Phaser.Math.DegToRad(config.angle);
-    const velocity = (config.power / 100) * 50;
-    this.velocityX = Math.cos(angleRad) * velocity;
-    this.velocityY = Math.sin(angleRad) * velocity;
+    const { velocityX, velocityY } = calculateInitialVelocity(config.angle, config.power);
+    this.velocityX = velocityX;
+    this.velocityY = velocityY;
 
     // Create visual representation
     this.createVisual();

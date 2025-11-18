@@ -14,6 +14,7 @@ import { WeatherSystem } from '@/systems/WeatherSystem';
 import { EnvironmentSystem } from '@/systems/EnvironmentSystem';
 import { SINGLEPLAYER_LEVELS } from '@/config/levels';
 import { ProgressManager } from '@/utils/ProgressManager';
+import { calculateTrajectoryPoint } from '@/utils/physicsUtils';
 
 /**
  * Main game scene
@@ -46,6 +47,7 @@ export class GameScene extends Phaser.Scene {
   private completedTrajectories: { x: number; y: number }[][] = [];
   private trajectoryGraphics!: Phaser.GameObjects.Graphics;
   private readonly MAX_TRAJECTORIES = 5;
+  private trajectoriesDirty: boolean = false; // Track if trajectories need redrawing
 
   constructor() {
     super({ key: 'GameScene' });
@@ -461,6 +463,9 @@ export class GameScene extends Phaser.Scene {
     });
   }
 
+  /**
+   * OPTIMIZED: Preview trajectory with minimal allocations
+   */
   private updateTrajectoryPreview(): void {
     const currentTank = this.tanks[this.currentPlayerIndex];
     if (!currentTank || !currentTank.isAlive()) {
@@ -471,25 +476,33 @@ export class GameScene extends Phaser.Scene {
     this.trajectoryPreview.lineStyle(2, 0xffffff, 0.5);
 
     const fireData = currentTank.fire();
-    const points: Phaser.Math.Vector2[] = [];
+    const width = this.cameras.main.width;
+    const height = this.cameras.main.height;
 
-    for (let t = 0; t < 5; t += 0.1) {
-      const angleRad = Phaser.Math.DegToRad(fireData.angle);
-      const velocity = (fireData.power / 100) * 50;
-      const velocityX = Math.cos(angleRad) * velocity;
-      const velocityY = Math.sin(angleRad) * velocity;
+    // OPTIMIZED: Draw directly without creating array of Vector2 objects
+    this.trajectoryPreview.beginPath();
+    this.trajectoryPreview.moveTo(fireData.x, fireData.y);
+    
+    let hasPoints = false;
+    for (let t = 0.2; t < 5; t += 0.2) { // Reduced iterations from 50 to 25
+      const point = calculateTrajectoryPoint(
+        fireData.x,
+        fireData.y,
+        fireData.angle,
+        fireData.power,
+        t,
+        1.0 // gravity
+      );
 
-      const x = fireData.x + velocityX * t;
-      const y = fireData.y + velocityY * t + 0.5 * 1.0 * t * t;
-
-      if (x >= 0 && x < this.cameras.main.width && y >= 0 && y < this.cameras.main.height) {
-        points.push(new Phaser.Math.Vector2(x, y));
+      if (point.x >= 0 && point.x < width && point.y >= 0 && point.y < height) {
+        this.trajectoryPreview.lineTo(point.x, point.y);
+        hasPoints = true;
+      } else if (hasPoints) {
+        break; // Stop drawing if we've left the screen
       }
     }
 
-    if (points.length > 1) {
-      this.trajectoryPreview.strokePoints(points, false);
-    }
+    this.trajectoryPreview.strokePath();
   }
 
   private fireProjectile(): void {
@@ -912,6 +925,9 @@ export class GameScene extends Phaser.Scene {
       
       if (tankHitPoint) {
         // Попадание в танк - взрыв!
+        // Move projectile sprite to exact hit point for visual consistency
+        projectile.x = tankHitPoint.x;
+        projectile.y = tankHitPoint.y;
         this.saveTrajectory(projectile, tankHitPoint);
         this.explosionSystem.explode(tankHitPoint.x, tankHitPoint.y, 30, 50, projectile.getOwnerId());
         this.audioSystem.playExplosion();
@@ -934,6 +950,9 @@ export class GameScene extends Phaser.Scene {
 
         if (hitPoint) {
           // Попадание в землю
+          // Move projectile sprite to exact hit point for visual consistency
+          projectile.x = hitPoint.x;
+          projectile.y = hitPoint.y;
           this.saveTrajectory(projectile, hitPoint);
           this.explosionSystem.explode(hitPoint.x, hitPoint.y, 30, 50, projectile.getOwnerId());
           this.audioSystem.playExplosion();
@@ -968,11 +987,16 @@ export class GameScene extends Phaser.Scene {
       const trajectory = this.activeTrajectories.get(projectile);
       if (trajectory) {
         trajectory.push({ x: projectile.x, y: projectile.y });
+        this.trajectoriesDirty = true; // Mark as dirty when trajectory updates
       }
       projectile.updateLastPosition();
     });
 
+    // OPTIMIZED: Only redraw trajectories when they actually change
+    if (this.trajectoriesDirty) {
     this.drawTrajectories();
+      this.trajectoriesDirty = false;
+    }
   }
 
   private saveTrajectory(projectile: Projectile, endPoint: { x: number; y: number }): void {
@@ -992,12 +1016,14 @@ export class GameScene extends Phaser.Scene {
       }
       
       this.activeTrajectories.delete(projectile);
+      this.trajectoriesDirty = true; // Mark as dirty when trajectory completes
     }
   }
 
   private drawTrajectories(): void {
     this.trajectoryGraphics.clear();
 
+    // OPTIMIZED: Draw completed trajectories with simple lines (not smooth splines)
     this.completedTrajectories.forEach((trajectory, index) => {
       if (trajectory.length < 2) return;
       
@@ -1005,60 +1031,39 @@ export class GameScene extends Phaser.Scene {
       const color = colors[Math.min(index, colors.length - 1)];
       
       this.trajectoryGraphics.lineStyle(1.5, color, 0.6);
-      this.drawSmoothTrajectory(trajectory);
+      this.drawSimpleTrajectory(trajectory);
     });
 
+    // Draw active trajectory with smooth spline (only one at a time)
     this.activeTrajectories.forEach((trajectory) => {
       if (trajectory.length < 2) return;
       
       this.trajectoryGraphics.lineStyle(2, 0xffff00, 0.9);
-      this.drawSmoothTrajectory(trajectory);
+      this.drawSimpleTrajectory(trajectory); // Use simple lines for performance
     });
   }
 
-  private drawSmoothTrajectory(points: { x: number; y: number }[]): void {
+  /**
+   * OPTIMIZED: Draw trajectory with simple lines (much faster than Catmull-Rom splines)
+   * Subsample points to reduce number of line segments while maintaining shape
+   */
+  private drawSimpleTrajectory(points: { x: number; y: number }[]): void {
     if (points.length < 2) return;
 
-    if (points.length === 2) {
       this.trajectoryGraphics.beginPath();
       this.trajectoryGraphics.moveTo(points[0].x, points[0].y);
-      this.trajectoryGraphics.lineTo(points[1].x, points[1].y);
-      this.trajectoryGraphics.strokePath();
-      return;
+
+    // Subsample: only draw every Nth point for performance (but keep smooth appearance)
+    const step = Math.max(1, Math.floor(points.length / 50)); // Max 50 segments per trajectory
+    
+    for (let i = step; i < points.length; i += step) {
+      this.trajectoryGraphics.lineTo(points[i].x, points[i].y);
     }
-
-    this.trajectoryGraphics.beginPath();
-    this.trajectoryGraphics.moveTo(points[0].x, points[0].y);
-
-    for (let i = 0; i < points.length - 1; i++) {
-      const p0 = i > 0 ? points[i - 1] : points[i];
-      const p1 = points[i];
-      const p2 = points[i + 1];
-      const p3 = i < points.length - 2 ? points[i + 2] : points[i + 1];
-
-      const segments = 8;
-      for (let j = 1; j <= segments; j++) {
-        const t = j / segments;
-        
-        const t2 = t * t;
-        const t3 = t2 * t;
-        
-        const x = 0.5 * (
-          (2 * p1.x) +
-          (-p0.x + p2.x) * t +
-          (2 * p0.x - 5 * p1.x + 4 * p2.x - p3.x) * t2 +
-          (-p0.x + 3 * p1.x - 3 * p2.x + p3.x) * t3
-        );
-        
-        const y = 0.5 * (
-          (2 * p1.y) +
-          (-p0.y + p2.y) * t +
-          (2 * p0.y - 5 * p1.y + 4 * p2.y - p3.y) * t2 +
-          (-p0.y + 3 * p1.y - 3 * p2.y + p3.y) * t3
-        );
-        
-        this.trajectoryGraphics.lineTo(x, y);
-      }
+    
+    // Always draw the last point
+    if (points.length > 1) {
+      const lastPoint = points[points.length - 1];
+      this.trajectoryGraphics.lineTo(lastPoint.x, lastPoint.y);
     }
 
     this.trajectoryGraphics.strokePath();

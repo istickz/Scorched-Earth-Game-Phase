@@ -115,6 +115,7 @@ export class TerrainSystem {
 
   /**
    * Render terrain using Phaser Graphics
+   * OPTIMIZED: Uses vertical column rendering instead of pixel-by-pixel
    */
   private render(): void {
     // Create or clear sky graphics object (separate from terrain to avoid depth issues)
@@ -142,13 +143,32 @@ export class TerrainSystem {
       this.terrainGraphics.setDepth(0); // Render behind other objects but above sky
     }
 
-    // Draw terrain - use terrainData to draw pixel by pixel for accurate destruction
+    // OPTIMIZED: Draw terrain column by column for MASSIVE performance boost
+    // Instead of drawing each pixel individually, we draw vertical segments
     this.terrainGraphics.fillStyle(this.groundColor);
+    
     for (let x = 0; x < this.width; x++) {
+      // Find continuous vertical segments of solid terrain
+      let segmentStart = -1;
+      
       for (let y = 0; y < this.height; y++) {
-        if (this.terrainData[x] && this.terrainData[x][y]) {
-          this.terrainGraphics.fillRect(x, y, 1, 1);
+        const isSolid = this.terrainData[x] && this.terrainData[x][y];
+        
+        if (isSolid && segmentStart === -1) {
+          // Start of new segment
+          segmentStart = y;
+        } else if (!isSolid && segmentStart !== -1) {
+          // End of segment - draw it
+          const segmentHeight = y - segmentStart;
+          this.terrainGraphics.fillRect(x, segmentStart, 1, segmentHeight);
+          segmentStart = -1;
         }
+      }
+      
+      // If segment extends to bottom of screen
+      if (segmentStart !== -1) {
+        const segmentHeight = this.height - segmentStart;
+        this.terrainGraphics.fillRect(x, segmentStart, 1, segmentHeight);
       }
     }
   }
@@ -202,6 +222,7 @@ export class TerrainSystem {
 
   /**
    * Destroy terrain in a circular crater
+   * OPTIMIZED: Only redraws affected columns instead of entire terrain
    */
   public destroyCrater(centerX: number, centerY: number, radius: number): void {
     const radiusSquared = radius * radius;
@@ -210,7 +231,11 @@ export class TerrainSystem {
     const minY = Math.max(0, Math.floor(centerY - radius));
     const maxY = Math.min(this.height - 1, Math.ceil(centerY + radius));
 
+    // Track which columns were modified
+    const modifiedColumns = new Set<number>();
+
     for (let x = minX; x <= maxX; x++) {
+      let columnModified = false;
       for (let y = minY; y <= maxY; y++) {
         const dx = x - centerX;
         const dy = y - centerY;
@@ -218,32 +243,45 @@ export class TerrainSystem {
 
         if (distSquared <= radiusSquared) {
           // Destroy terrain at this point
-          this.terrainData[x][y] = false;
+          if (this.terrainData[x][y]) {
+            this.terrainData[x][y] = false;
+            columnModified = true;
+          }
         }
+      }
+      if (columnModified) {
+        modifiedColumns.add(x);
       }
     }
 
-    // Recalculate height map
-    this.recalculateHeights();
-    this.render();
+    // Recalculate heights for modified columns
+    if (modifiedColumns.size > 0) {
+      for (const x of modifiedColumns) {
+        this.recalculateColumnHeight(x);
+      }
+      
+      // Redraw entire terrain to ensure proper clearing of old pixels
+      // This is necessary because Phaser Graphics doesn't support partial clear
+      // The redraw is deferred in ExplosionSystem, so explosion particles appear immediately
+      this.render();
+    }
   }
 
   /**
-   * Recalculate height map after destruction
+   * Recalculate height for a single column
    */
-  private recalculateHeights(): void {
-    for (let x = 0; x < this.width; x++) {
-      // Find the highest solid point in this column
-      let highestSolid = -1;
-      for (let y = this.height - 1; y >= 0; y--) {
-        if (this.terrainData[x][y]) {
-          highestSolid = y;
-          break;
-        }
+  private recalculateColumnHeight(x: number): void {
+    // Find the highest solid point in this column
+    let highestSolid = -1;
+    for (let y = this.height - 1; y >= 0; y--) {
+      if (this.terrainData[x] && this.terrainData[x][y]) {
+        highestSolid = y;
+        break;
       }
-      this.terrainHeight[x] = highestSolid >= 0 ? highestSolid : this.height;
     }
+    this.terrainHeight[x] = highestSolid >= 0 ? highestSolid : this.height;
   }
+
 
   /**
    * Get the terrain graphics object
