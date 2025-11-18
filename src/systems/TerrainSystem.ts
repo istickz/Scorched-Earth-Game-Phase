@@ -221,6 +221,50 @@ export class TerrainSystem {
   }
 
   /**
+   * Render only specific columns (optimized partial redraw)
+   * Only redraws terrain, not sky (sky never changes after initial render)
+   */
+  private renderColumns(columns: Set<number>): void {
+    if (columns.size === 0 || !this.terrainGraphics) return;
+    
+    // First, clear only the affected columns by drawing sky color over them
+    // This removes old terrain pixels
+    this.terrainGraphics.fillStyle(this.skyColor);
+    for (const x of columns) {
+      // Clear the entire column height
+      this.terrainGraphics.fillRect(x, 0, 1, this.height);
+    }
+    
+    // Now draw terrain for modified columns only
+    this.terrainGraphics.fillStyle(this.groundColor);
+    
+    for (const x of columns) {
+      // Find continuous vertical segments of solid terrain
+      let segmentStart = -1;
+      
+      for (let y = 0; y < this.height; y++) {
+        const isSolid = this.terrainData[x] && this.terrainData[x][y];
+        
+        if (isSolid && segmentStart === -1) {
+          // Start of new segment
+          segmentStart = y;
+        } else if (!isSolid && segmentStart !== -1) {
+          // End of segment - draw it
+          const segmentHeight = y - segmentStart;
+          this.terrainGraphics.fillRect(x, segmentStart, 1, segmentHeight);
+          segmentStart = -1;
+        }
+      }
+      
+      // If segment extends to bottom of screen
+      if (segmentStart !== -1) {
+        const segmentHeight = this.height - segmentStart;
+        this.terrainGraphics.fillRect(x, segmentStart, 1, segmentHeight);
+      }
+    }
+  }
+
+  /**
    * Destroy terrain in a circular crater
    * OPTIMIZED: Only redraws affected columns instead of entire terrain
    */
@@ -260,10 +304,10 @@ export class TerrainSystem {
         this.recalculateColumnHeight(x);
       }
       
-      // Redraw entire terrain to ensure proper clearing of old pixels
-      // This is necessary because Phaser Graphics doesn't support partial clear
-      // The redraw is deferred in ExplosionSystem, so explosion particles appear immediately
-      this.render();
+      // OPTIMIZED: Only redraw affected columns, not entire terrain
+      // Sky doesn't need redrawing - it never changes after initial render
+      // This provides massive performance improvement on high-resolution displays
+      this.renderColumns(modifiedColumns);
     }
   }
 

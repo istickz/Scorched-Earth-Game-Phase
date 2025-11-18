@@ -36,11 +36,9 @@ export class ExplosionSystem {
     // Emit explosion event for damage calculation (needed immediately for tank damage)
     this.scene.events.emit('explosion', { x, y, radius, damage, ownerId });
 
-    // Defer terrain destruction/redraw to next frame to avoid blocking rendering
-    // This ensures explosion particles appear immediately while terrain redraw happens asynchronously
-    this.scene.time.delayedCall(0, () => {
+    // With optimized partial redraw, terrain destruction is now fast enough to do synchronously
+    // This ensures terrain is destroyed in the same frame as damage is applied, improving synchronization
       this.terrainSystem.destroyCrater(x, y, radius);
-    });
 
     // Screen shake disabled for better performance
   }

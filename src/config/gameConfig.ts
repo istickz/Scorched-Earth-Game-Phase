@@ -82,4 +82,3 @@ export const gameConfig: Phaser.Types.Core.GameConfig = {
     createContainer: true,
   },
 };
-
