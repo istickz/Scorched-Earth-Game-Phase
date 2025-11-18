@@ -16,7 +16,6 @@ import {
 export class LevelSelectScene extends Phaser.Scene {
   private difficulty!: AIDifficulty;
   private levelButtons: Phaser.GameObjects.Container[] = [];
-  private selectedLevelIndex: number = 0;
   private menuMusic!: Phaser.Sound.BaseSound | null;
 
   constructor() {

@@ -32,7 +32,6 @@ export class LevelEditorScene extends Phaser.Scene {
   };
 
   private previewGraphics!: Phaser.GameObjects.Graphics;
-  private roughnessValueText!: Phaser.GameObjects.BitmapText;
   private previewSeed: number = Math.random() * 1000000;
   private seedValueText!: Phaser.GameObjects.BitmapText;
   private seedValueShadow!: Phaser.GameObjects.BitmapText;
@@ -479,7 +478,7 @@ export class LevelEditorScene extends Phaser.Scene {
     // Ширина слайдера = фиксированная позиция конца - позиция начала
     const sliderWidth = sliderEndX - sliderStartX;
     
-    const slider = createNESSlider(
+    createNESSlider(
       this,
       this.contentContainer,
       {
@@ -497,8 +496,6 @@ export class LevelEditorScene extends Phaser.Scene {
       },
       }
     );
-    
-    this.roughnessValueText = slider.valueText;
   }
 
   /**
@@ -593,7 +590,7 @@ export class LevelEditorScene extends Phaser.Scene {
       'Wind X:',
       inputX,
       startY,
-      currentEffects.windX,
+      currentEffects.windX ?? defaultEffects.windX,
       -2,
       2,
       (v) => this.updateEnvironmentEffect('windX', v, defaultEffects),
@@ -606,7 +603,7 @@ export class LevelEditorScene extends Phaser.Scene {
       'Wind Y:',
       inputX,
       startY + spacing,
-      currentEffects.windY,
+      currentEffects.windY ?? defaultEffects.windY,
       -2,
       2,
       (v) => this.updateEnvironmentEffect('windY', v, defaultEffects),
@@ -619,7 +616,7 @@ export class LevelEditorScene extends Phaser.Scene {
       'Gravity:',
       inputX,
       startY + spacing * 2,
-      currentEffects.gravity,
+      currentEffects.gravity ?? defaultEffects.gravity,
       0.1,
       2,
       (v) => this.updateEnvironmentEffect('gravity', v, defaultEffects),
@@ -632,7 +629,7 @@ export class LevelEditorScene extends Phaser.Scene {
       'Air Density:',
       inputX,
       startY + spacing * 3,
-      currentEffects.airDensity,
+      currentEffects.airDensity ?? defaultEffects.airDensity,
       0.1,
       2,
       (v) => this.updateEnvironmentEffect('airDensity', v, defaultEffects),
@@ -645,7 +642,7 @@ export class LevelEditorScene extends Phaser.Scene {
       'Turbulence:',
       inputX,
       startY + spacing * 4,
-      currentEffects.turbulence,
+      currentEffects.turbulence ?? defaultEffects.turbulence,
       0,
       1,
       (v) => this.updateEnvironmentEffect('turbulence', v, defaultEffects),

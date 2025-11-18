@@ -28,8 +28,6 @@ export class GameScene extends Phaser.Scene {
   private currentPlayerIndex: number = 0;
   private uiText!: Phaser.GameObjects.BitmapText;
   private uiTextShadow!: Phaser.GameObjects.BitmapText;
-  private controlsText!: Phaser.GameObjects.BitmapText;
-  private controlsTextShadow!: Phaser.GameObjects.BitmapText;
   private trajectoryPreview!: Phaser.GameObjects.Graphics;
   private canFire: boolean = true;
   private waitingForProjectile: boolean = false;
@@ -242,7 +240,7 @@ export class GameScene extends Phaser.Scene {
 
     // Controls text with shadow (bitmap font)
     const controlsTextStr = 'Controls: ← → (Angle) | ↑ ↓ (Power) | SPACE (Fire)';
-    const { shadow: controlsTextShadow, text: controlsText } = createTextWithShadow(
+    createTextWithShadow(
       this,
       uiContainer,
       20,
@@ -253,8 +251,6 @@ export class GameScene extends Phaser.Scene {
       0,
       0
     );
-    this.controlsTextShadow = controlsTextShadow;
-    this.controlsText = controlsText;
 
     // Создаем графику для предпросмотра траектории
     this.trajectoryPreview = this.add.graphics();

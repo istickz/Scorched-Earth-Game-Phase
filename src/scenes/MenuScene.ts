@@ -1,5 +1,5 @@
 import Phaser from 'phaser';
-import { GameMode, type AIDifficulty } from '@/types';
+import { type AIDifficulty } from '@/types';
 import {
   createNESContainer,
   createTextWithShadow,
@@ -605,22 +605,6 @@ export class MenuScene extends Phaser.Scene {
     });
   }
 
-  /**
-   * Start the game with the selected mode and difficulty
-   * (Kept for backward compatibility, but not used for singleplayer anymore)
-   */
-  private startGame(mode: GameMode, difficulty: AIDifficulty = 'medium'): void {
-    // Stop menu music before starting game
-    this.stopMenuMusic();
-    
-    // Pass game mode, difficulty, and level index to GameScene
-    // For singleplayer, start at level 0 (first predefined level)
-    this.scene.start('GameScene', {
-      gameMode: mode,
-      aiDifficulty: difficulty,
-      levelIndex: mode === GameMode.Solo ? 0 : undefined,
-    });
-  }
 
   /**
    * Start multiplayer lobby
