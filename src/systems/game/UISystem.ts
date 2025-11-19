@@ -1,9 +1,10 @@
 import Phaser from 'phaser';
-import { GameMode, type AIDifficulty } from '@/types';
+import { GameMode } from '@/types';
 import { createTextWithShadow } from '@/utils/NESUI';
 import { Tank } from '@/entities/Tank';
 import { SINGLEPLAYER_LEVELS } from '@/config/levels';
 import { getWeaponConfig } from '@/config/weapons';
+import { WeaponType } from '@/types/weapons';
 
 /**
  * UI System for game HUD (only for GameScene, not for menus)
@@ -124,7 +125,7 @@ export class UISystem {
     const currentWeapon = currentTank.getWeapon();
     
     weapons.forEach((weapon, index) => {
-      const config = getWeaponConfig(weapon as any);
+      const config = getWeaponConfig(weapon as WeaponType);
       const ammo = currentTank.getAmmo(weapon);
       const ammoText = ammo === -1 ? '∞' : `x${ammo}`;
       const isCurrent = weapon === currentWeapon;
@@ -160,11 +161,8 @@ export class UISystem {
   public destroy(): void {
     if (this.uiContainer) {
       this.uiContainer.destroy(true);
-      this.uiContainer = undefined as any;
     }
     // BitmapText objects are destroyed with container
-    this.uiText = undefined as any;
-    this.uiTextShadow = undefined as any;
   }
 }
 

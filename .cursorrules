@@ -86,10 +86,45 @@ src/
 
 ### Type Safety
 - Enable `strict: true` in tsconfig.json
-- No `any` types unless absolutely necessary
+- **NEVER use `any` type** - always specify proper types or use `unknown`
 - Define interfaces for all data structures
-- Use enums for fixed sets of values
+- **NEVER use `enum`** - use const objects with type aliases instead (see example below)
 - Type all function parameters and return values
+- Prefix unused parameters with `_` (e.g., `_unusedParam: number`)
+- Remove unused imports immediately
+
+### Enums Alternative (IMPORTANT!)
+Since project uses `erasableSyntaxOnly`, enums are NOT allowed. Use this pattern:
+```typescript
+// ✅ CORRECT - const object + type alias
+export const WeaponType = {
+  STANDARD: 'standard',
+  SALVO: 'salvo',
+  HAZELNUT: 'hazelnut'
+} as const;
+
+export type WeaponType = typeof WeaponType[keyof typeof WeaponType];
+
+// ❌ WRONG - enum not supported
+export enum WeaponType {
+  STANDARD = 'standard'
+}
+```
+
+### Proper Type Usage
+```typescript
+// ❌ WRONG - using any
+function fireSalvo(config: any) { ... }
+
+// ✅ CORRECT - specific type
+function fireSalvo(config: { salvoCount?: number; salvoSpread?: number }) { ... }
+
+// ❌ WRONG - unused parameter causing warning
+onTurnChanged: (newIndex: number) => { ... } // newIndex not used
+
+// ✅ CORRECT - prefix with underscore
+onTurnChanged: (_newIndex: number) => { ... }
+```
 
 ### Phaser Types
 ```typescript
@@ -101,6 +136,19 @@ class MyScene extends Phaser.Scene {
 
 // Type event callbacks
 this.events.on('eventName', (data: MyDataType) => { ... });
+```
+
+### Graphics Positioning (CRITICAL!)
+When using `Phaser.GameObjects.Graphics`, ALWAYS set position first:
+```typescript
+// ❌ WRONG - draws at wrong position
+const graphics = this.scene.add.graphics();
+graphics.fillCircle(x, y, radius); // Wrong!
+
+// ✅ CORRECT - set position, then draw at (0,0)
+const graphics = this.scene.add.graphics();
+graphics.setPosition(x, y); // Position first!
+graphics.fillCircle(0, 0, radius); // Draw at origin
 ```
 
 ## WebRTC & Multiplayer
@@ -127,12 +175,33 @@ this.events.on('eventName', (data: MyDataType) => { ... });
 - Profile with browser DevTools when optimizing
 
 ## Common Pitfalls to Avoid
+
+### TypeScript
+- ❌ **NEVER use `enum`** - use const objects (causes build errors with erasableSyntaxOnly)
+- ❌ **NEVER use `any`** - always specify proper types
+- ❌ Don't leave unused imports or parameters (causes linter warnings)
+- ❌ Don't add trailing commas in const objects meant to be enums
+- ✅ Prefix unused parameters with `_` to indicate intentional non-use
+
+### Phaser Graphics
+- ❌ Don't draw at absolute coordinates in Graphics (causes random visuals)
+- ✅ Always `setPosition()` first, then draw at (0,0)
+- ❌ Don't use `undefined as any` in destroy methods (unnecessary)
+- ✅ Just call `destroy()` and let TypeScript handle cleanup
+
+### Phaser General
 - ❌ Don't use browser localStorage/sessionStorage (use Phaser's data manager)
 - ❌ Don't manipulate DOM directly (use Phaser's UI system)
 - ❌ Don't mix radians and degrees (Phaser uses degrees)
 - ❌ Don't forget to remove event listeners in `shutdown()`
 - ❌ Don't use arrow functions for scene methods (loses `this` context)
 - ❌ Don't create new objects in `update()` loop (causes garbage collection)
+
+### BitmapText
+- ❌ Don't use `setTint()` on BitmapText (doesn't work)
+- ✅ Use `setTintFill()` for BitmapText color changes
+- ❌ Don't use Unicode characters (arrows, etc) in bitmap fonts
+- ✅ Use ASCII alternatives: `<>` for arrows, `LEFT/RIGHT` for directions
 
 ## Error Handling
 - Wrap WebRTC operations in try-catch blocks
@@ -157,6 +226,19 @@ this.events.on('eventName', (data: MyDataType) => { ... });
 6. Consider performance implications
 7. Handle edge cases and errors
 8. Suggest improvements proactively
+
+## Pre-Commit Checklist
+Before considering code complete, verify:
+1. ✅ No `any` types used
+2. ✅ No `enum` declarations (use const objects instead)
+3. ✅ No unused imports or variables
+4. ✅ Unused parameters prefixed with `_`
+5. ✅ Graphics use `setPosition()` before drawing
+6. ✅ BitmapText uses `setTintFill()` not `setTint()`
+7. ✅ No Unicode characters in bitmap font strings
+8. ✅ All `destroy()` methods clean without `as any`
+9. ✅ Run `npm run lint` - no warnings
+10. ✅ Run `npm run build` - compiles successfully
 
 ## When You're Unsure
 - Ask clarifying questions before implementing

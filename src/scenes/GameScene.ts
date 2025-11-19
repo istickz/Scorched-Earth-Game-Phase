@@ -18,7 +18,7 @@ import { UISystem } from '@/systems/game/UISystem';
 import { TurnSystem } from '@/systems/game/TurnSystem';
 import { GameOverSystem } from '@/systems/game/GameOverSystem';
 import { TrajectorySystem } from '@/systems/game/TrajectorySystem';
-import { ProjectileCollisionSystem, type ICollisionResult } from '@/systems/game/ProjectileCollisionSystem';
+import { ProjectileCollisionSystem } from '@/systems/game/ProjectileCollisionSystem';
 import { getWeaponConfig } from '@/config/weapons';
 import { WeaponType } from '@/types/weapons';
 
@@ -179,7 +179,7 @@ export class GameScene extends Phaser.Scene {
     
     this.turnSystem = new TurnSystem(this, this.tanks, this.gameMode, this.aiSystem);
     this.turnSystem.setCallbacks({
-      onTurnChanged: (newIndex: number) => {
+      onTurnChanged: (_newIndex: number) => {
         // Turn changed callback
       },
       onFireRequested: () => {
@@ -633,7 +633,7 @@ export class GameScene extends Phaser.Scene {
   private fireSalvo(
     fireData: { x: number; y: number; angle: number; power: number; weaponType: string },
     ownerId: string,
-    weaponConfig: any
+    weaponConfig: { salvoCount?: number; salvoSpread?: number; salvoDelay?: number }
   ): void {
     const salvoCount = weaponConfig.salvoCount || 6;
     const salvoSpread = weaponConfig.salvoSpread || 8;

@@ -5,11 +5,13 @@
 /**
  * Weapon types available in the game
  */
-export enum WeaponType {
-  STANDARD = 'standard',      // Обычный снаряд
-  SALVO = 'salvo',            // Залповая система - несколько снарядов из одного дула
-  HAZELNUT = 'hazelnut',      // Орешник - один снаряд разделяется на 6 в середине пути
-}
+export const WeaponType = {
+  STANDARD: 'standard',      // Обычный снаряд
+  SALVO: 'salvo',            // Залповая система - несколько снарядов из одного дула
+  HAZELNUT: 'hazelnut'       // Орешник - один снаряд разделяется на 6 в середине пути
+} as const;
+
+export type WeaponType = typeof WeaponType[keyof typeof WeaponType];
 
 /**
  * Weapon configuration interface

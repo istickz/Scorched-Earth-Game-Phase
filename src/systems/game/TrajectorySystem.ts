@@ -10,8 +10,6 @@ import { type TerrainBiome, type TimeOfDay } from '@/types';
  */
 export class TrajectorySystem {
   private scene: Phaser.Scene;
-  private tanks: Tank[];
-  private terrainSystem: TerrainSystem;
   private timeOfDay: TimeOfDay;
   private biome: TerrainBiome;
   
@@ -27,14 +25,12 @@ export class TrajectorySystem {
 
   constructor(
     scene: Phaser.Scene,
-    tanks: Tank[],
-    terrainSystem: TerrainSystem,
+    _tanks: Tank[],
+    _terrainSystem: TerrainSystem,
     timeOfDay: TimeOfDay = 'day',
     biome: TerrainBiome = 'temperate'
   ) {
     this.scene = scene;
-    this.tanks = tanks;
-    this.terrainSystem = terrainSystem;
     this.timeOfDay = timeOfDay;
     this.biome = biome;
   }
@@ -77,7 +73,7 @@ export class TrajectorySystem {
   /**
    * Update trajectory preview for current tank
    */
-  public updatePreview(currentTank: Tank | undefined, currentPlayerIndex: number): void {
+  public updatePreview(currentTank: Tank | undefined, _currentPlayerIndex: number): void {
     if (!currentTank || !currentTank.isAlive()) {
       return;
     }
@@ -344,12 +340,10 @@ export class TrajectorySystem {
   public destroy(): void {
     if (this.trajectoryGraphics) {
       this.trajectoryGraphics.destroy();
-      this.trajectoryGraphics = undefined as any;
     }
     
     if (this.trajectoryPreview) {
       this.trajectoryPreview.destroy();
-      this.trajectoryPreview = undefined as any;
     }
     
     this.activeTrajectories.clear();
