@@ -58,9 +58,8 @@ export class TerrainSystem {
    * Generate procedural terrain using improved fractal noise
    */
   private generate(config: ITerrainConfig): void {
-    const minHeight = config.minHeight || this.height * 0.3;
-    const maxHeight = config.maxHeight || this.height * 0.7;
-    const roughness = config.roughness || 0.3;
+    const terrainMinHeight = config.terrainMinHeight || this.height * 0.2;
+    const terrainMaxHeight = config.terrainMaxHeight || this.height * 0.7;
     const shape = config.shape || TerrainShape.HILLS;
     // Generate a random seed if not provided, ensuring different terrain each time
     const seed = config.seed !== undefined ? config.seed : Math.random() * 1000000;
@@ -71,46 +70,37 @@ export class TerrainSystem {
       this.terrainHeight[x] = 0;
     }
 
-    // Generate heightmap using improved fractal noise
+    // Generate heightmap using smooth fractal noise (no small details)
+    // Use modulo to prevent precision loss with large sine arguments
+    const TWO_PI = 2 * Math.PI;
+    const normalizeAngle = (angle: number): number => {
+      // Normalize angle to [0, 2π) range to maintain precision
+      angle = angle % TWO_PI;
+      return angle < 0 ? angle + TWO_PI : angle;
+    };
+    
     for (let x = 0; x < this.width; x++) {
       // Primary fractal noise (large scale features) - shape-dependent
       const primaryNoise = NoiseGenerator.fractalNoise(x, seed, shape);
       
-      // Secondary fractal noise with different seed (medium scale features) - shape-dependent
-      const secondaryNoise = NoiseGenerator.fractalNoise(x, seed * 1.37 + 5000, shape, shape === TerrainShape.HILLS ? 2 : 4);
+      // Add smooth sine waves for smooth hills (normalized to prevent precision loss)
+      const sine1 = Math.sin(normalizeAngle((x + seed) * 0.008)) * 0.15;
+      const sine2 = Math.sin(normalizeAngle((x + seed * 1.618) * 0.015)) * 0.1;
+      const sine3 = Math.sin(normalizeAngle((x + seed * 2.718) * 0.025)) * 0.08;
       
-      // Tertiary noise (small details)
-      const tertiaryNoise = NoiseGenerator.fractalNoise(x, seed * 2.71 + 10000, shape, 2);
-      
-      // Add some sine waves for smooth hills (but with varying frequencies)
-      const sine1 = Math.sin((x + seed) * 0.008) * 0.15;
-      const sine2 = Math.sin((x + seed * 1.618) * 0.015) * 0.1;
-      const sine3 = Math.sin((x + seed * 2.718) * 0.025) * 0.08;
-      
-      // Add local variation using seeded random
-      const localVariation = (NoiseGenerator.seededRandom(seed + x * 0.05) - 0.5) * 0.3;
-      
-      // Combine all noise sources with different weights
+      // Combine noise sources with weights (only smooth components, no small details)
       const combinedNoise = 
-        primaryNoise * 0.35 +
-        secondaryNoise * 0.25 +
-        tertiaryNoise * 0.15 +
-        sine1 * 0.1 +
-        sine2 * 0.08 +
-        sine3 * 0.05 +
-        localVariation * 0.02;
+        primaryNoise * 0.5 +
+        sine1 * 0.2 +
+        sine2 * 0.15 +
+        sine3 * 0.15;
 
       // Normalize to 0-1 range
       const normalizedHeight = Phaser.Math.Clamp(combinedNoise, 0, 1);
       
-      // Apply roughness as amplitude multiplier (same logic as in LevelEditorScene)
-      // roughness 0.05-1.0, normalize to range ~0.33-6.67 (0.15 is default = 1.0x)
-      const roughnessMultiplier = roughness / 0.15;
-      const baseHeight = minHeight + (maxHeight - minHeight) * 0.5;
-      const amplitude = (maxHeight - minHeight) * 0.4;
-      const terrainY = baseHeight + (normalizedHeight - 0.5) * amplitude * roughnessMultiplier;
+      const terrainY = terrainMinHeight + (terrainMaxHeight - terrainMinHeight) * normalizedHeight;
 
-      this.terrainHeight[x] = Math.floor(terrainY);
+      this.terrainHeight[x] = this.height - Math.floor(terrainY); 
 
       // Fill terrain data from bottom to terrain height
       for (let y = 0; y < this.height; y++) {

@@ -1,0 +1,133 @@
+import Phaser from 'phaser';
+import { Tank } from '@/entities/Tank';
+import { Projectile } from '@/entities/Projectile';
+import { TerrainSystem } from '@/systems/TerrainSystem';
+
+/**
+ * Collision result interface
+ */
+export interface ICollisionResult {
+  projectile: Projectile;
+  hitPoint: { x: number; y: number };
+  hitType: 'tank' | 'terrain' | 'outOfBounds';
+  hitTank?: Tank;
+}
+
+/**
+ * Projectile Collision System for detecting collisions
+ */
+export class ProjectileCollisionSystem {
+  private scene: Phaser.Scene;
+  private tanks: Tank[];
+  private terrainSystem: TerrainSystem;
+  private readonly TANK_HITBOX_RADIUS = 40; // Увеличен для лучшего попадания
+
+  constructor(
+    scene: Phaser.Scene,
+    tanks: Tank[],
+    terrainSystem: TerrainSystem
+  ) {
+    this.scene = scene;
+    this.tanks = tanks;
+    this.terrainSystem = terrainSystem;
+  }
+
+  /**
+   * Check collisions for all projectiles
+   * Returns array of collision results
+   */
+  public checkCollisions(projectiles: Projectile[]): ICollisionResult[] {
+    const collisions: ICollisionResult[] = [];
+    const width = this.scene.cameras.main.width;
+    const height = this.scene.cameras.main.height;
+
+    projectiles.forEach((projectile) => {
+      const lastPos = projectile.getLastPosition();
+      const currentX = projectile.x;
+      const currentY = projectile.y;
+      
+      const dx = currentX - lastPos.x;
+      const dy = currentY - lastPos.y;
+      const distance = Math.sqrt(dx * dx + dy * dy);
+      
+      // Проверяем попадание по танкам ПЕРВЫМ (приоритет)
+      let hitTank: Tank | null = null;
+      let tankHitPoint: { x: number; y: number } | null = null;
+      
+      for (const tank of this.tanks) {
+        if (!tank.isAlive()) {
+          continue;
+        }
+        
+        // Не попадаем в свой танк
+        const tankId = `tank-${this.tanks.indexOf(tank)}`;
+        if (projectile.getOwnerId() === tankId) {
+          continue;
+        }
+        
+        // Проверяем путь снаряда по точкам
+        const steps = Math.max(10, Math.ceil(distance / 1)); // Проверка каждого пикселя
+        for (let i = 0; i <= steps; i++) {
+          const t = i / steps;
+          const checkX = lastPos.x + dx * t;
+          const checkY = lastPos.y + dy * t;
+          
+          const distToTank = Phaser.Math.Distance.Between(checkX, checkY, tank.x, tank.y);
+          if (distToTank <= this.TANK_HITBOX_RADIUS) {
+            hitTank = tank;
+            tankHitPoint = { x: checkX, y: checkY };
+            break;
+          }
+        }
+        
+        if (hitTank) {
+          break;
+        }
+      }
+      
+      if (tankHitPoint && hitTank) {
+        // Попадание в танк
+        collisions.push({
+          projectile,
+          hitPoint: tankHitPoint,
+          hitType: 'tank',
+          hitTank,
+        });
+      } else {
+        // Проверяем попадание в землю
+        let hitPoint: { x: number; y: number } | null = null;
+        const steps = Math.max(10, Math.ceil(distance / 1)); // Проверка каждого пикселя
+        
+        for (let i = 0; i <= steps; i++) {
+          const t = i / steps;
+          const checkX = lastPos.x + dx * t;
+          const checkY = lastPos.y + dy * t;
+          
+          if (this.terrainSystem.isSolid(checkX, checkY)) {
+            hitPoint = { x: checkX, y: checkY };
+            break;
+          }
+        }
+
+        if (hitPoint) {
+          // Попадание в землю
+          collisions.push({
+            projectile,
+            hitPoint,
+            hitType: 'terrain',
+          });
+        } else if (projectile.y > height || projectile.x < 0 || projectile.x > width) {
+          // Снаряд улетел за экран
+          collisions.push({
+            projectile,
+            hitPoint: { x: projectile.x, y: projectile.y },
+            hitType: 'outOfBounds',
+          });
+        }
+      }
+    });
+
+    return collisions;
+  }
+}
+

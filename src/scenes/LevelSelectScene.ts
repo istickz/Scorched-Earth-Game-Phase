@@ -7,8 +7,10 @@ import {
   createTextWithShadow,
   createNESButton,
   createNESMenuButton,
+  createNESBackground,
   NESColors,
 } from '@/utils/NESUI';
+import { AudioSystem } from '@/systems/AudioSystem';
 
 /**
  * Level selection scene - shows grid of levels with locked/unlocked status
@@ -16,7 +18,7 @@ import {
 export class LevelSelectScene extends Phaser.Scene {
   private difficulty!: AIDifficulty;
   private levelButtons: Phaser.GameObjects.Container[] = [];
-  private menuMusic!: Phaser.Sound.BaseSound | null;
+  private audioSystem!: AudioSystem;
 
   constructor() {
     super({ key: 'LevelSelectScene' });
@@ -30,8 +32,11 @@ export class LevelSelectScene extends Phaser.Scene {
     const screenWidth = this.cameras.main.width;
     const screenHeight = this.cameras.main.height;
 
+    // Initialize audio system
+    this.audioSystem = new AudioSystem();
+
     // Create NES-style background
-    this.createNESBackground(screenWidth, screenHeight);
+    createNESBackground(this, screenWidth, screenHeight);
 
     // Create title
     this.createTitle(screenWidth);
@@ -43,30 +48,12 @@ export class LevelSelectScene extends Phaser.Scene {
     this.createBackButton(screenWidth, screenHeight);
 
     // Play menu music
-    this.playMenuMusic();
+    this.audioSystem.playMenuMusic(this);
 
     // Setup keyboard controls
     this.setupKeyboardControls();
   }
 
-  /**
-   * Create NES-style background
-   */
-  private createNESBackground(width: number, height: number): void {
-    const bgGraphics = this.add.graphics();
-    
-    // Dark blue base
-    bgGraphics.fillStyle(0x2c3e50);
-    bgGraphics.fillRect(0, 0, width, height);
-
-    // Add some pattern for NES feel
-    for (let y = 0; y < height; y += 4) {
-      if (y % 8 === 0) {
-        bgGraphics.fillStyle(0x34495e);
-        bgGraphics.fillRect(0, y, width, 2);
-      }
-    }
-  }
 
   /**
    * Create title
@@ -275,7 +262,7 @@ export class LevelSelectScene extends Phaser.Scene {
    */
   private startLevel(levelIndex: number): void {
     // Stop menu music
-    this.stopMenuMusic();
+    this.audioSystem.stopMenuMusic();
     
     // Start game with selected level
     this.scene.start('GameScene', {
@@ -325,64 +312,15 @@ export class LevelSelectScene extends Phaser.Scene {
     });
   }
 
-  /**
-   * Play menu music
-   */
-  private playMenuMusic(): void {
-    try {
-      if (this.cache.audio.exists('menu-music')) {
-        // Check if music is already playing (from MenuScene)
-        let existingMusic: Phaser.Sound.BaseSound | null = null;
-        try {
-          interface SoundManagerWithSounds extends Phaser.Sound.BaseSoundManager {
-            sounds?: Phaser.Sound.BaseSound[];
-          }
-          const soundManager = this.sound as SoundManagerWithSounds;
-          if (soundManager.sounds) {
-            existingMusic = soundManager.sounds.find((sound: Phaser.Sound.BaseSound) => {
-              return sound.key === 'menu-music' && sound.isPlaying;
-            }) || null;
-          }
-        } catch {
-          // Continue to create new instance
-        }
-        
-        if (existingMusic) {
-          this.menuMusic = existingMusic as Phaser.Sound.BaseSound;
-          return;
-        }
-        
-        if (this.menuMusic && this.menuMusic.isPlaying) {
-          return;
-        }
-        
-        this.menuMusic = this.sound.add('menu-music', {
-          volume: 0.5,
-          loop: true,
-        });
-        
-        this.menuMusic.play();
-      }
-    } catch (error) {
-      console.error('Error playing menu music:', error);
-    }
-  }
-
-  /**
-   * Stop menu music
-   */
-  private stopMenuMusic(): void {
-    if (this.menuMusic && this.menuMusic.isPlaying) {
-      this.menuMusic.stop();
-    }
-  }
 
   shutdown(): void {
     // Clean up keyboard listeners
     this.input.keyboard?.off('keydown-ESCAPE');
     
     // Stop menu music when leaving
-    this.stopMenuMusic();
+    if (this.audioSystem) {
+      this.audioSystem.stopMenuMusic();
+    }
   }
 }
 

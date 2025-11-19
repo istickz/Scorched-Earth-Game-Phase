@@ -4,8 +4,10 @@ import {
   createNESContainer,
   createTextWithShadow,
   createSectionTitle,
+  createNESBackground,
   NESColors,
 } from '@/utils/NESUI';
+import { AudioSystem } from '@/systems/AudioSystem';
 
 interface MenuOption {
   text: string;
@@ -21,7 +23,7 @@ export class MenuScene extends Phaser.Scene {
   private menuTexts: Phaser.GameObjects.BitmapText[] = [];
   private cursorSprite!: Phaser.GameObjects.Sprite;
   private blinkTimer: Phaser.Time.TimerEvent | null = null;
-  private menuMusic!: Phaser.Sound.BaseSound | null;
+  private audioSystem!: AudioSystem;
   private isDifficultyMenu: boolean = false;
   private difficultyOptions: MenuOption[] = [];
   private difficultyTexts: Phaser.GameObjects.BitmapText[] = [];
@@ -50,8 +52,11 @@ export class MenuScene extends Phaser.Scene {
     const width = this.cameras.main.width;
     const height = this.cameras.main.height;
 
+    // Initialize audio system
+    this.audioSystem = new AudioSystem();
+
     // Create NES-style background
-    this.createNESBackground(width, height);
+    createNESBackground(this, width, height);
 
     // Create pixelated title
     this.createTitle(width, height);
@@ -107,47 +112,9 @@ export class MenuScene extends Phaser.Scene {
     this.createCursorAnimation();
 
     // Play menu music (if loaded)
-    this.playMenuMusic();
+    this.audioSystem.playMenuMusic(this);
   }
 
-  /**
-   * Play menu music in cracktro/demoscene style
-   */
-  private playMenuMusic(): void {
-    try {
-      // Check if music was loaded in cache
-      if (this.cache.audio.exists('menu-music')) {
-        // If music exists but is stopped, restart it
-        if (this.menuMusic) {
-          if (this.menuMusic.isPlaying) {
-            console.log('Menu music already playing');
-            return;
-          } else {
-            // Music was stopped, restart it
-            this.menuMusic.play();
-            console.log('Menu music restarted');
-            return;
-          }
-        }
-        
-        // Create new music instance
-        this.menuMusic = this.sound.add('menu-music', {
-          volume: 0.5, // Adjust volume (0.0 to 1.0)
-          loop: true,  // Loop the music
-        });
-        
-        // Play music
-        this.menuMusic.play();
-        console.log('Menu music started');
-      } else {
-        console.warn('Menu music not found in cache. Make sure file is in public/assets/sounds/arcade_puzzler.ogg');
-        console.log('Available audio files:', this.cache.audio.getKeys());
-      }
-    } catch (error) {
-      // Music not loaded or error playing
-      console.error('Error playing menu music:', error);
-    }
-  }
 
   /**
    * Create copyright/attribution notice
@@ -193,25 +160,6 @@ export class MenuScene extends Phaser.Scene {
     );
   }
 
-  /**
-   * Create NES-style background
-   */
-  private createNESBackground(width: number, height: number): void {
-    // Create gradient-like effect with rectangles
-    const bgGraphics = this.add.graphics();
-    
-    // Dark blue base
-    bgGraphics.fillStyle(0x2c3e50);
-    bgGraphics.fillRect(0, 0, width, height);
-
-    // Add some pattern for NES feel
-    for (let y = 0; y < height; y += 4) {
-      if (y % 8 === 0) {
-        bgGraphics.fillStyle(0x34495e);
-        bgGraphics.fillRect(0, y, width, 2);
-      }
-    }
-  }
 
   /**
    * Create pixelated title in NES style
@@ -611,7 +559,7 @@ export class MenuScene extends Phaser.Scene {
    */
   private startMultiplayer(): void {
     // Stop menu music before going to multiplayer
-    this.stopMenuMusic();
+    this.audioSystem.stopMenuMusic();
     
     this.scene.start('MultiplayerLobbyScene');
   }
@@ -624,18 +572,6 @@ export class MenuScene extends Phaser.Scene {
     this.scene.start('LevelEditorScene');
   }
 
-  /**
-   * Stop menu music
-   */
-  private stopMenuMusic(): void {
-    if (this.menuMusic) {
-      if (this.menuMusic.isPlaying) {
-        this.menuMusic.stop();
-      }
-      // Don't destroy the sound object, just stop it
-      // It will be reused when returning to menu
-    }
-  }
 
   /**
    * Quit game (close window/tab)
@@ -660,6 +596,8 @@ export class MenuScene extends Phaser.Scene {
     }
 
     // Stop menu music when leaving menu
-    this.stopMenuMusic();
+    if (this.audioSystem) {
+      this.audioSystem.stopMenuMusic();
+    }
   }
 }

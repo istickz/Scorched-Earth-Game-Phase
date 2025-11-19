@@ -919,3 +919,29 @@ export function createNESInput(
   };
 }
 
+/**
+ * Create NES-style background
+ * @param scene - Phaser scene
+ * @param width - Background width
+ * @param height - Background height
+ * @returns Graphics object for the background
+ */
+export function createNESBackground(scene: Phaser.Scene, width: number, height: number): Phaser.GameObjects.Graphics {
+  // Create gradient-like effect with rectangles
+  const bgGraphics = scene.add.graphics();
+  
+  // Dark blue base
+  bgGraphics.fillStyle(0x2c3e50);
+  bgGraphics.fillRect(0, 0, width, height);
+
+  // Add some pattern for NES feel
+  for (let y = 0; y < height; y += 4) {
+    if (y % 8 === 0) {
+      bgGraphics.fillStyle(0x34495e);
+      bgGraphics.fillRect(0, y, width, 2);
+    }
+  }
+  
+  return bgGraphics;
+}
+

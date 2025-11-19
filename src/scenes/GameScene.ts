@@ -1,6 +1,5 @@
 import Phaser from 'phaser';
-import { GameMode, type ITankConfig, type AIDifficulty, type ILevelConfig, TerrainBiome, TerrainShape, type IEnvironmentEffects } from '@/types';
-import { createTextWithShadow } from '@/utils/NESUI';
+import { GameMode, type ITankConfig, type AIDifficulty, type ILevelConfig, type IEnvironmentEffects } from '@/types';
 import { TerrainSystem } from '@/systems/TerrainSystem';
 import { Tank } from '@/entities/Tank';
 import { Projectile } from '@/entities/Projectile';
@@ -13,8 +12,12 @@ import { BiomeSystem } from '@/systems/BiomeSystem';
 import { WeatherSystem } from '@/systems/WeatherSystem';
 import { EnvironmentSystem } from '@/systems/EnvironmentSystem';
 import { SINGLEPLAYER_LEVELS } from '@/config/levels';
-import { ProgressManager } from '@/utils/ProgressManager';
-import { calculateTrajectoryPoint } from '@/utils/physicsUtils';
+import { createRandomLevelConfig } from '@/utils/levelUtils';
+import { UISystem } from '@/systems/game/UISystem';
+import { TurnSystem } from '@/systems/game/TurnSystem';
+import { GameOverSystem } from '@/systems/game/GameOverSystem';
+import { TrajectorySystem } from '@/systems/game/TrajectorySystem';
+import { ProjectileCollisionSystem, type ICollisionResult } from '@/systems/game/ProjectileCollisionSystem';
 
 /**
  * Main game scene
@@ -25,27 +28,23 @@ export class GameScene extends Phaser.Scene {
   private tanks: Tank[] = [];
   private activeProjectiles: Projectile[] = [];
   private explosionSystem!: ExplosionSystem;
-  private currentPlayerIndex: number = 0;
-  private uiText!: Phaser.GameObjects.BitmapText;
-  private uiTextShadow!: Phaser.GameObjects.BitmapText;
-  private trajectoryPreview!: Phaser.GameObjects.Graphics;
-  private canFire: boolean = true;
-  private waitingForProjectile: boolean = false;
-  private isSwitchingTurn: boolean = false;
-  private gameOver: boolean = false;
-  private aiSystem!: AISystem;
+  private aiSystem?: AISystem;
   private lastExplosionHit: { x: number; y: number } | null = null;
   private lastShotData: Map<string, { angle: number; power: number; ownerId: string }> = new Map();
   private webrtcManager?: WebRTCManager;
   private networkSync?: NetworkSync;
   private audioSystem!: AudioSystem;
   private environmentEffects!: IEnvironmentEffects;
-  // Trajectory tracking system
-  private activeTrajectories: Map<Projectile, { x: number; y: number }[]> = new Map();
-  private completedTrajectories: { x: number; y: number }[][] = [];
-  private trajectoryGraphics!: Phaser.GameObjects.Graphics;
-  private readonly MAX_TRAJECTORIES = 5;
-  private trajectoriesDirty: boolean = false; // Track if trajectories need redrawing
+  
+  // Game systems
+  private uiSystem!: UISystem;
+  private turnSystem!: TurnSystem;
+  private gameOverSystem!: GameOverSystem;
+  private trajectorySystem!: TrajectorySystem;
+  private collisionSystem!: ProjectileCollisionSystem;
+  
+  // Input handlers for cleanup
+  private inputHandlers: Array<{ event: string; callback: () => void }> = [];
 
   constructor() {
     super({ key: 'GameScene' });
@@ -73,15 +72,8 @@ export class GameScene extends Phaser.Scene {
     this.currentLevelIndex = data?.levelIndex ?? 0;
     
     // Сбрасываем все игровые состояния при инициализации/перезапуске
-    this.gameOver = false;
     this.tanks = [];
     this.activeProjectiles = [];
-    this.activeTrajectories = new Map();
-    this.completedTrajectories = [];
-    this.currentPlayerIndex = 0;
-    this.canFire = true;
-    this.waitingForProjectile = false;
-    this.isSwitchingTurn = false;
     this.lastExplosionHit = null;
     this.lastShotData = new Map();
   }
@@ -104,7 +96,7 @@ export class GameScene extends Phaser.Scene {
       levelConfig = SINGLEPLAYER_LEVELS[levelIndex];
     } else {
       // Multiplayer or other modes: use random generation
-      levelConfig = this.createRandomLevelConfig();
+      levelConfig = createRandomLevelConfig();
     }
     
     // Use seed from config if provided, otherwise generate random
@@ -140,9 +132,8 @@ export class GameScene extends Phaser.Scene {
     this.terrainSystem = new TerrainSystem(this, {
       width,
       height,
-      minHeight: height * 0.45,
-      maxHeight: height * 0.85,
-      roughness: levelConfig.roughness,
+      terrainMinHeight: (levelConfig.terrainMinHeight ?? 0.1) * height,
+      terrainMaxHeight: (levelConfig.terrainMaxHeight ?? 0.85) * height,
       seed: terrainSeed,
       skyColor: skyColor,
       groundColor: colors.ground,
@@ -170,11 +161,39 @@ export class GameScene extends Phaser.Scene {
     }
 
     this.createTanks();
-    this.setupUI();
-    this.setupInput();
     
-    // Убираем setupCollisions - больше не нужна Matter.js коллизия
-    // this.setupCollisions();
+    // Initialize game systems
+    this.uiSystem = new UISystem(this);
+    this.uiSystem.setup();
+    
+    this.turnSystem = new TurnSystem(this, this.tanks, this.gameMode, this.aiSystem);
+    this.turnSystem.setCallbacks({
+      onTurnChanged: (newIndex: number) => {
+        // Turn changed callback
+      },
+      onFireRequested: () => {
+        this.fireProjectile();
+      },
+      onUIUpdate: () => {
+        this.updateUI();
+      },
+    });
+    
+    this.gameOverSystem = new GameOverSystem(
+      this,
+      this.tanks,
+      this.gameMode,
+      this.aiDifficulty,
+      this.currentLevelIndex
+    );
+    
+    this.trajectorySystem = new TrajectorySystem(this, this.tanks, this.terrainSystem);
+    this.trajectorySystem.setup();
+    
+    this.collisionSystem = new ProjectileCollisionSystem(this, this.tanks, this.terrainSystem);
+    
+    this.setupInput();
+    this.updateUI();
 
     this.events.on('explosion', this.handleExplosion, this);
   }
@@ -218,81 +237,14 @@ export class GameScene extends Phaser.Scene {
     this.tanks.push(tank2);
   }
 
-  private setupUI(): void {
-    // Create UI container for HUD elements
-    const uiContainer = this.add.container(0, 0);
-    
-    // UI text with shadow (bitmap font)
-    const { shadow: uiTextShadow, text: uiText } = createTextWithShadow(
-      this,
-      uiContainer,
-      20,
-      20,
-      '',
-      18,
-      0xffffff,
-      0,
-      0
-    );
-    this.uiTextShadow = uiTextShadow;
-    this.uiText = uiText;
-
-    // Controls text with shadow (bitmap font)
-    const controlsTextStr = 'Controls: ← → (Angle) | ↑ ↓ (Power) | SPACE (Fire)';
-    createTextWithShadow(
-      this,
-      uiContainer,
-      20,
-      60,
-      controlsTextStr,
-      14,
-      0xaaaaaa,
-      0,
-      0
-    );
-
-    // Создаем графику для предпросмотра траектории
-    this.trajectoryPreview = this.add.graphics();
-    this.trajectoryPreview.setDepth(1);
-    this.trajectoryPreview.clear(); // Очищаем при создании
-
-    // Создаем графику для отображения траекторий выстрелов
-    this.trajectoryGraphics = this.add.graphics();
-    this.trajectoryGraphics.setDepth(4);
-    this.trajectoryGraphics.clear(); // Очищаем при создании
-
-    this.updateUI();
-  }
-
   private updateUI(): void {
-    const currentTank = this.tanks[this.currentPlayerIndex];
-    if (!currentTank || !currentTank.isAlive()) {
-      return;
-    }
-
-    let modeText = 'Singleplayer';
-    if (this.gameMode === GameMode.Multiplayer) {
-      modeText = 'P2P Multiplayer';
-    } else if (this.gameMode === GameMode.Local) {
-      modeText = 'Local Multiplayer';
-    }
-    
-    // Add level number for singleplayer mode
-    let levelText = '';
-    if (this.gameMode === GameMode.Solo) {
-      const levelNumber = this.currentLevelIndex + 1;
-      const totalLevels = SINGLEPLAYER_LEVELS.length;
-      levelText = ` | Level ${levelNumber}/${totalLevels}`;
-    }
-    
-    const isAITurn = this.gameMode === GameMode.Solo && this.currentPlayerIndex === 1;
-    const playerText = isAITurn ? 'AI Thinking...' : `Player ${this.currentPlayerIndex + 1}`;
-    const angleText = `Angle: ${currentTank.getTurretAngle().toFixed(0)}°`;
-    const powerText = `Power: ${currentTank.getPower().toFixed(0)}%`;
-
-    const uiTextStr = `${modeText}${levelText} | ${playerText} | ${angleText} | ${powerText}`;
-    this.uiText.setText(uiTextStr);
-    this.uiTextShadow.setText(uiTextStr);
+    const currentTank = this.tanks[this.turnSystem.getCurrentPlayerIndex()];
+    this.uiSystem.update(
+      currentTank,
+      this.turnSystem.getCurrentPlayerIndex(),
+      this.gameMode,
+      this.currentLevelIndex
+    );
   }
 
   private setupNetworkSync(): void {
@@ -302,19 +254,19 @@ export class GameScene extends Phaser.Scene {
 
     this.networkSync.setCallbacks({
       onAngleChange: (angle: number) => {
-        if (this.tanks[1] && this.currentPlayerIndex === 1) {
+        if (this.tanks[1] && this.turnSystem.getCurrentPlayerIndex() === 1) {
           this.tanks[1].setTurretAngle(angle);
           this.updateUI();
         }
       },
       onPowerChange: (power: number) => {
-        if (this.tanks[1] && this.currentPlayerIndex === 1) {
+        if (this.tanks[1] && this.turnSystem.getCurrentPlayerIndex() === 1) {
           this.tanks[1].setPower(power);
           this.updateUI();
         }
       },
       onFire: (angle: number, power: number) => {
-        if (this.tanks[1] && this.currentPlayerIndex === 1) {
+        if (this.tanks[1] && this.turnSystem.getCurrentPlayerIndex() === 1) {
           this.tanks[1].setTurretAngle(angle);
           this.tanks[1].setPower(power);
           this.fireProjectile();
@@ -359,166 +311,131 @@ export class GameScene extends Phaser.Scene {
   }
 
   private setupInput(): void {
-    const currentTank = this.tanks[this.currentPlayerIndex];
-    if (!currentTank || !currentTank.isAlive()) {
-      return;
-    }
-
-    this.input.keyboard?.on('keydown-LEFT', () => {
-      if (this.gameOver) {
-        return; // Игра окончена, управление заблокировано
-      }
-      // In P2P multiplayer, only player 1 can control. In local, both players control.
-      if (this.gameMode === GameMode.Multiplayer && this.currentPlayerIndex !== 0) {
+    const leftHandler = () => {
+      if (!this.turnSystem.canFire()) {
         return;
       }
-      if (this.tanks[this.currentPlayerIndex]?.isAlive()) {
-        const newAngle = this.tanks[this.currentPlayerIndex].getTurretAngle() - 5;
-        this.tanks[this.currentPlayerIndex].setTurretAngle(newAngle);
+      const currentIndex = this.turnSystem.getCurrentPlayerIndex();
+      // In P2P multiplayer, only player 1 can control. In local, both players control.
+      if (this.gameMode === GameMode.Multiplayer && currentIndex !== 0) {
+        return;
+      }
+      if (this.tanks[currentIndex]?.isAlive()) {
+        const newAngle = this.tanks[currentIndex].getTurretAngle() - 5;
+        this.tanks[currentIndex].setTurretAngle(newAngle);
         this.updateUI();
-        this.updateTrajectoryPreview();
+        this.trajectorySystem.updatePreview(this.tanks[currentIndex], currentIndex);
         if (this.networkSync && this.gameMode === GameMode.Multiplayer) {
           this.networkSync.sendAngle(newAngle);
         }
       }
-    });
+    };
 
-    this.input.keyboard?.on('keydown-RIGHT', () => {
-      if (this.gameOver) {
-        return; // Игра окончена, управление заблокировано
-      }
-      // In P2P multiplayer, only player 1 can control. In local, both players control.
-      if (this.gameMode === GameMode.Multiplayer && this.currentPlayerIndex !== 0) {
+    const rightHandler = () => {
+      if (!this.turnSystem.canFire()) {
         return;
       }
-      if (this.tanks[this.currentPlayerIndex]?.isAlive()) {
-        const newAngle = this.tanks[this.currentPlayerIndex].getTurretAngle() + 5;
-        this.tanks[this.currentPlayerIndex].setTurretAngle(newAngle);
+      const currentIndex = this.turnSystem.getCurrentPlayerIndex();
+      if (this.gameMode === GameMode.Multiplayer && currentIndex !== 0) {
+        return;
+      }
+      if (this.tanks[currentIndex]?.isAlive()) {
+        const newAngle = this.tanks[currentIndex].getTurretAngle() + 5;
+        this.tanks[currentIndex].setTurretAngle(newAngle);
         this.updateUI();
-        this.updateTrajectoryPreview();
+        this.trajectorySystem.updatePreview(this.tanks[currentIndex], currentIndex);
         if (this.networkSync && this.gameMode === GameMode.Multiplayer) {
           this.networkSync.sendAngle(newAngle);
         }
       }
-    });
+    };
 
-    this.input.keyboard?.on('keydown-UP', () => {
-      if (this.gameOver) {
-        return; // Игра окончена, управление заблокировано
-      }
-      // In P2P multiplayer, only player 1 can control. In local, both players control.
-      if (this.gameMode === GameMode.Multiplayer && this.currentPlayerIndex !== 0) {
+    const upHandler = () => {
+      if (!this.turnSystem.canFire()) {
         return;
       }
-      if (this.tanks[this.currentPlayerIndex]?.isAlive()) {
-        const newPower = this.tanks[this.currentPlayerIndex].getPower() + 5;
-        this.tanks[this.currentPlayerIndex].setPower(newPower);
+      const currentIndex = this.turnSystem.getCurrentPlayerIndex();
+      if (this.gameMode === GameMode.Multiplayer && currentIndex !== 0) {
+        return;
+      }
+      if (this.tanks[currentIndex]?.isAlive()) {
+        const newPower = this.tanks[currentIndex].getPower() + 5;
+        this.tanks[currentIndex].setPower(newPower);
         this.updateUI();
-        this.updateTrajectoryPreview();
+        this.trajectorySystem.updatePreview(this.tanks[currentIndex], currentIndex);
         if (this.networkSync && this.gameMode === GameMode.Multiplayer) {
           this.networkSync.sendPower(newPower);
         }
       }
-    });
+    };
 
-    this.input.keyboard?.on('keydown-DOWN', () => {
-      if (this.gameOver) {
-        return; // Игра окончена, управление заблокировано
-      }
-      // In P2P multiplayer, only player 1 can control. In local, both players control.
-      if (this.gameMode === GameMode.Multiplayer && this.currentPlayerIndex !== 0) {
+    const downHandler = () => {
+      if (!this.turnSystem.canFire()) {
         return;
       }
-      if (this.tanks[this.currentPlayerIndex]?.isAlive()) {
-        const newPower = this.tanks[this.currentPlayerIndex].getPower() - 5;
-        this.tanks[this.currentPlayerIndex].setPower(newPower);
+      const currentIndex = this.turnSystem.getCurrentPlayerIndex();
+      if (this.gameMode === GameMode.Multiplayer && currentIndex !== 0) {
+        return;
+      }
+      if (this.tanks[currentIndex]?.isAlive()) {
+        const newPower = this.tanks[currentIndex].getPower() - 5;
+        this.tanks[currentIndex].setPower(newPower);
         this.updateUI();
-        this.updateTrajectoryPreview();
+        this.trajectorySystem.updatePreview(this.tanks[currentIndex], currentIndex);
         if (this.networkSync && this.gameMode === GameMode.Multiplayer) {
           this.networkSync.sendPower(newPower);
         }
       }
-    });
+    };
 
-    this.input.keyboard?.on('keydown-SPACE', () => {
-      if (this.gameOver) {
-        return; // Игра окончена, управление заблокировано
-      }
-      // In P2P multiplayer, only player 1 can control. In local, both players control.
-      if (this.gameMode === GameMode.Multiplayer && this.currentPlayerIndex !== 0) {
+    const spaceHandler = () => {
+      if (!this.turnSystem.canFire()) {
         return;
       }
-      if (this.tanks[this.currentPlayerIndex]?.isAlive()) {
+      const currentIndex = this.turnSystem.getCurrentPlayerIndex();
+      if (this.gameMode === GameMode.Multiplayer && currentIndex !== 0) {
+        return;
+      }
+      if (this.tanks[currentIndex]?.isAlive()) {
         if (this.networkSync && this.gameMode === GameMode.Multiplayer) {
-          const tank = this.tanks[this.currentPlayerIndex];
+          const tank = this.tanks[currentIndex];
           this.networkSync.sendFire(tank.getTurretAngle(), tank.getPower());
         }
         this.fireProjectile();
       }
-    });
-  }
+    };
 
-  /**
-   * OPTIMIZED: Preview trajectory with minimal allocations
-   */
-  private updateTrajectoryPreview(): void {
-    const currentTank = this.tanks[this.currentPlayerIndex];
-    if (!currentTank || !currentTank.isAlive()) {
-      return;
-    }
-
-    this.trajectoryPreview.clear();
-    this.trajectoryPreview.lineStyle(2, 0xffffff, 0.5);
-
-    const fireData = currentTank.fire();
-    const width = this.cameras.main.width;
-    const height = this.cameras.main.height;
-
-    // OPTIMIZED: Draw directly without creating array of Vector2 objects
-    this.trajectoryPreview.beginPath();
-    this.trajectoryPreview.moveTo(fireData.x, fireData.y);
+    this.input.keyboard?.on('keydown-LEFT', leftHandler);
+    this.input.keyboard?.on('keydown-RIGHT', rightHandler);
+    this.input.keyboard?.on('keydown-UP', upHandler);
+    this.input.keyboard?.on('keydown-DOWN', downHandler);
+    this.input.keyboard?.on('keydown-SPACE', spaceHandler);
     
-    let hasPoints = false;
-    for (let t = 0.2; t < 5; t += 0.2) { // Reduced iterations from 50 to 25
-      const point = calculateTrajectoryPoint(
-        fireData.x,
-        fireData.y,
-        fireData.angle,
-        fireData.power,
-        t,
-        1.0 // gravity
-      );
-
-      if (point.x >= 0 && point.x < width && point.y >= 0 && point.y < height) {
-        this.trajectoryPreview.lineTo(point.x, point.y);
-        hasPoints = true;
-      } else if (hasPoints) {
-        break; // Stop drawing if we've left the screen
-      }
-    }
-
-    this.trajectoryPreview.strokePath();
+    this.inputHandlers.push(
+      { event: 'keydown-LEFT', callback: leftHandler },
+      { event: 'keydown-RIGHT', callback: rightHandler },
+      { event: 'keydown-UP', callback: upHandler },
+      { event: 'keydown-DOWN', callback: downHandler },
+      { event: 'keydown-SPACE', callback: spaceHandler }
+    );
   }
 
   private fireProjectile(): void {
-    if (this.gameOver) {
-      return; // Игра окончена, стрельба невозможна
-    }
-    
-    if (!this.canFire || this.waitingForProjectile) {
+    if (!this.turnSystem.canFire()) {
       return;
     }
 
-    const currentTank = this.tanks[this.currentPlayerIndex];
+    const currentIndex = this.turnSystem.getCurrentPlayerIndex();
+    const currentTank = this.tanks[currentIndex];
     if (!currentTank || !currentTank.isAlive()) {
       return;
     }
 
-    this.canFire = false;
-    this.waitingForProjectile = true;
+    this.turnSystem.setCanFire(false);
+    this.turnSystem.setWaitingForProjectile(true);
 
     const fireData = currentTank.fire();
-    const ownerId = `tank-${this.currentPlayerIndex}`;
+    const ownerId = `tank-${currentIndex}`;
     const projectile = new Projectile(this, {
       x: fireData.x,
       y: fireData.y,
@@ -534,12 +451,9 @@ export class GameScene extends Phaser.Scene {
       ownerId: ownerId,
     });
 
-    this.activeTrajectories.set(projectile, [
-      { x: projectile.x, y: projectile.y }
-    ]);
-
+    this.trajectorySystem.initializeTrajectory(projectile);
     this.activeProjectiles.push(projectile);
-    this.trajectoryPreview.clear();
+    this.trajectorySystem.clearPreview();
 
     this.audioSystem.playFire();
   }
@@ -605,252 +519,18 @@ export class GameScene extends Phaser.Scene {
       }
     }
 
-    if (this.waitingForProjectile && !this.isSwitchingTurn) {
-      this.isSwitchingTurn = true;
-      this.time.delayedCall(50, () => {
-        this.switchTurn();
-      });
-    }
-
-    this.checkGameOver();
-  }
-
-  private switchTurn(): void {
-    if (this.gameOver) {
-      return; // Игра окончена, смена хода невозможна
-    }
-    
-    this.isSwitchingTurn = false;
-    this.waitingForProjectile = false;
-    this.canFire = true;
-
-    let nextIndex = (this.currentPlayerIndex + 1) % this.tanks.length;
-    let attempts = 0;
-
-    while (!this.tanks[nextIndex]?.isAlive() && attempts < this.tanks.length) {
-      nextIndex = (nextIndex + 1) % this.tanks.length;
-      attempts++;
-    }
-
-    this.currentPlayerIndex = nextIndex;
-    this.updateUI();
-
-    // Show player indicator for local multiplayer
-    if (this.gameMode === GameMode.Local) {
-      this.showPlayerTurnIndicator();
-    }
-
-    if (this.gameMode === GameMode.Solo && this.currentPlayerIndex === 1 && this.aiSystem) {
-      this.handleAITurn();
+    // Schedule turn switch if waiting for projectile and explosion happened
+    if (this.turnSystem.isWaitingForProjectile() && this.activeProjectiles.length === 0) {
+      this.turnSystem.scheduleTurnSwitch(50);
     }
   }
 
-  /**
-   * Show turn indicator for local multiplayer
-   */
-  private showPlayerTurnIndicator(): void {
-    const width = this.cameras.main.width;
-    const height = this.cameras.main.height;
-
-    const playerName = `PLAYER ${this.currentPlayerIndex + 1}`;
-    const turnTextStr = `${playerName}'S TURN`;
-    
-    // Turn text with shadow (bitmap font)
-    const turnShadow = this.add.bitmapText(width / 2 + 4, height / 2 + 4, 'pixel-font', turnTextStr, 64);
-    turnShadow.setTintFill(0x000000);
-    turnShadow.setOrigin(0.5);
-
-    const turnText = this.add.bitmapText(width / 2, height / 2, 'pixel-font', turnTextStr, 64);
-    turnText.setTintFill(0xffffff);
-    turnText.setOrigin(0.5);
-
-    // Fade out animation
-    this.tweens.add({
-      targets: [turnText, turnShadow],
-      alpha: 0,
-      scale: 1.2,
-      duration: 1500,
-      ease: 'Power2',
-      onComplete: () => {
-        turnText.destroy();
-        turnShadow.destroy();
-      },
-    });
-  }
-
-  private handleAITurn(): void {
-    if (this.gameOver) {
-      return; // Игра окончена, AI не может ходить
-    }
-    
-    const aiTank = this.tanks[1];
-    const playerTank = this.tanks[0];
-
-    if (!aiTank?.isAlive() || !playerTank?.isAlive()) {
-      return;
-    }
-
-    if (this.currentPlayerIndex !== 1) {
-      this.currentPlayerIndex = 1;
-    }
-
-    this.updateUI();
-
-    this.aiSystem.getAIDecision(aiTank, playerTank, (angle: number, power: number) => {
-      if (this.gameOver) {
-        return; // Игра окончена в процессе принятия решения AI
-      }
-      
-      if (this.currentPlayerIndex !== 1) {
-        this.currentPlayerIndex = 1;
-      }
-
-      aiTank.setTurretAngle(angle);
-      aiTank.setPower(power);
-
-      this.updateUI();
-
-      if (this.currentPlayerIndex === 1) {
-        this.fireProjectile();
-      }
-    });
-  }
-
-  private checkGameOver(): void {
-    if (this.gameOver) {
-      return; // Уже обработали окончание игры
-    }
-
-    const aliveTanks = this.tanks.filter((tank) => tank.isAlive());
-
-    if (aliveTanks.length === 1) {
-      this.gameOver = true;
-      const winnerIndex = this.tanks.findIndex((tank) => tank.isAlive());
-      
-      // For singleplayer mode, check if player won and advance to next level
-      if (this.gameMode === GameMode.Solo && winnerIndex === 0) {
-        // Player won - save progress and advance to next level
-        ProgressManager.completeLevel(this.aiDifficulty, this.currentLevelIndex);
-        
-        const nextLevelIndex = this.currentLevelIndex + 1;
-        if (nextLevelIndex < SINGLEPLAYER_LEVELS.length) {
-          this.showLevelComplete(nextLevelIndex);
-        } else {
-          // All levels completed
-          this.showGameOver('Congratulations! All Levels Completed!');
-        }
-      } else {
-        // AI won or other modes
-      this.showGameOver(`Player ${winnerIndex + 1} Wins!`);
-      }
-    } else if (aliveTanks.length === 0) {
-      this.gameOver = true;
-      this.showGameOver('Draw!');
-    }
-  }
-
-  private showLevelComplete(nextLevelIndex: number): void {
-    const width = this.cameras.main.width;
-    const height = this.cameras.main.height;
-
-    // Level complete message with shadow (bitmap font)
-    const message = 'Level Complete!';
-    const messageShadow = this.add.bitmapText(width / 2 + 3, height / 2 - 20 + 3, 'pixel-font', message, 48);
-    messageShadow.setTintFill(0x000000);
-    messageShadow.setOrigin(0.5);
-
-    const messageText = this.add.bitmapText(width / 2, height / 2 - 20, 'pixel-font', message, 48);
-    messageText.setTintFill(0x00ff00); // Green color for success
-    messageText.setOrigin(0.5);
-
-    // Next level info
-    const nextLevelMsg = `Next: Level ${nextLevelIndex + 1}/${SINGLEPLAYER_LEVELS.length}`;
-    const nextLevelShadow = this.add.bitmapText(width / 2 + 2, height / 2 + 30 + 2, 'pixel-font', nextLevelMsg, 24);
-    nextLevelShadow.setTintFill(0x000000);
-    nextLevelShadow.setOrigin(0.5);
-
-    const nextLevelText = this.add.bitmapText(width / 2, height / 2 + 30, 'pixel-font', nextLevelMsg, 24);
-    nextLevelText.setTintFill(0xffffff);
-    nextLevelText.setOrigin(0.5);
-
-    // Press SPACE text with shadow (bitmap font)
-    const continueShadow = this.add.bitmapText(width / 2 + 2, height / 2 + 62 + 2, 'pixel-font', 'Press SPACE to continue', 24);
-    continueShadow.setTintFill(0x000000);
-    continueShadow.setOrigin(0.5);
-
-    const continueText = this.add.bitmapText(width / 2, height / 2 + 62, 'pixel-font', 'Press SPACE to continue', 24);
-    continueText.setTintFill(0xffff00); // Yellow color
-    continueText.setOrigin(0.5);
-
-    // Press R text with shadow (bitmap font)
-    const restartShadow = this.add.bitmapText(width / 2 + 2, height / 2 + 92 + 2, 'pixel-font', 'Press R to restart level', 20);
-    restartShadow.setTintFill(0x000000);
-    restartShadow.setOrigin(0.5);
-
-    const restartText = this.add.bitmapText(width / 2, height / 2 + 92, 'pixel-font', 'Press R to restart level', 20);
-    restartText.setTintFill(0xaaaaaa);
-    restartText.setOrigin(0.5);
-
-    this.input.keyboard?.once('keydown-SPACE', () => {
-      // Advance to next level
-      this.scene.start('GameScene', {
-        gameMode: this.gameMode,
-        aiDifficulty: this.aiDifficulty,
-        levelIndex: nextLevelIndex,
-      });
-    });
-
-    this.input.keyboard?.once('keydown-R', () => {
-      // Restart current level
-      this.scene.restart();
-    });
-  }
-
-  private showGameOver(message: string): void {
-    const width = this.cameras.main.width;
-    const height = this.cameras.main.height;
-
-    // Game over message with shadow (bitmap font)
-    const messageShadow = this.add.bitmapText(width / 2 + 3, height / 2 + 3, 'pixel-font', message, 48);
-    messageShadow.setTintFill(0x000000);
-    messageShadow.setOrigin(0.5);
-
-    const messageText = this.add.bitmapText(width / 2, height / 2, 'pixel-font', message, 48);
-    messageText.setTintFill(0xffffff);
-    messageText.setOrigin(0.5);
-
-    // Press R text with shadow (bitmap font)
-    const restartShadow = this.add.bitmapText(width / 2 + 2, height / 2 + 62, 'pixel-font', 'Press R to restart', 24);
-    restartShadow.setTintFill(0x000000);
-    restartShadow.setOrigin(0.5);
-
-    const restartText = this.add.bitmapText(width / 2, height / 2 + 60, 'pixel-font', 'Press R to restart', 24);
-    restartText.setTintFill(0xffffff);
-    restartText.setOrigin(0.5);
-
-    // For singleplayer, also show option to return to menu
-    if (this.gameMode === GameMode.Solo) {
-      const menuShadow = this.add.bitmapText(width / 2 + 2, height / 2 + 92 + 2, 'pixel-font', 'Press M to return to menu', 20);
-      menuShadow.setTintFill(0x000000);
-      menuShadow.setOrigin(0.5);
-
-      const menuText = this.add.bitmapText(width / 2, height / 2 + 92, 'pixel-font', 'Press M to return to menu', 20);
-      menuText.setTintFill(0xaaaaaa);
-      menuText.setOrigin(0.5);
-
-      this.input.keyboard?.once('keydown-M', () => {
-        this.scene.start('MenuScene');
-      });
-    }
-
-    this.input.keyboard?.once('keydown-R', () => {
-      this.scene.restart();
-    });
-  }
 
   update(_time: number, delta: number): void {
-    // Останавливаем обновления после окончания игры
-    if (this.gameOver) {
+    // Check if game is over
+    const isGameOver = this.gameOverSystem.checkGameOver();
+    if (isGameOver) {
+      this.turnSystem.setGameOver(true);
       return;
     }
 
@@ -860,8 +540,10 @@ export class GameScene extends Phaser.Scene {
       }
     });
 
-    if (this.tanks[this.currentPlayerIndex]?.isAlive() && this.canFire && !this.waitingForProjectile) {
-      this.updateTrajectoryPreview();
+    // Update trajectory preview if can fire
+    const currentIndex = this.turnSystem.getCurrentPlayerIndex();
+    if (this.tanks[currentIndex]?.isAlive() && this.turnSystem.canFire()) {
+      this.trajectorySystem.updatePreview(this.tanks[currentIndex], currentIndex);
     }
 
     // Update projectile positions with manual physics (before collision detection)
@@ -869,218 +551,78 @@ export class GameScene extends Phaser.Scene {
       projectile.updatePosition(delta);
     });
 
-    // ЕДИНАЯ система детекции попаданий
+    // Check collisions using collision system
+    const collisions = this.collisionSystem.checkCollisions(this.activeProjectiles);
     const projectilesToRemove: Projectile[] = [];
-    this.activeProjectiles.forEach((projectile) => {
-      const lastPos = projectile.getLastPosition();
-      const currentX = projectile.x;
-      const currentY = projectile.y;
-      
-      const dx = currentX - lastPos.x;
-      const dy = currentY - lastPos.y;
-      const distance = Math.sqrt(dx * dx + dy * dy);
-      
-      // Радиус хитбокса танка
-      const tankHitboxRadius = 40; // Увеличен для лучшего попадания
-      
-      // Проверяем попадание по танкам ПЕРВЫМ (приоритет)
-      let hitTank: Tank | null = null;
-      let tankHitPoint: { x: number; y: number } | null = null;
-      
-      for (const tank of this.tanks) {
-        if (!tank.isAlive()) {
-          continue;
-        }
-        
-        // Не попадаем в свой танк
-        const tankId = `tank-${this.tanks.indexOf(tank)}`;
-        if (projectile.getOwnerId() === tankId) {
-          continue;
-        }
-        
-        // Проверяем путь снаряда по точкам
-        const steps = Math.max(10, Math.ceil(distance / 1)); // Проверка каждого пикселя
-        for (let i = 0; i <= steps; i++) {
-          const t = i / steps;
-          const checkX = lastPos.x + dx * t;
-          const checkY = lastPos.y + dy * t;
-          
-          const distToTank = Phaser.Math.Distance.Between(checkX, checkY, tank.x, tank.y);
-          if (distToTank <= tankHitboxRadius) {
-            hitTank = tank;
-            tankHitPoint = { x: checkX, y: checkY };
-            break;
-          }
-        }
-        
-        if (hitTank) {
-          break;
-        }
-      }
-      
-      if (tankHitPoint) {
-        // Попадание в танк - взрыв!
-        // Move projectile sprite to exact hit point for visual consistency
-        projectile.x = tankHitPoint.x;
-        projectile.y = tankHitPoint.y;
-        this.saveTrajectory(projectile, tankHitPoint);
-        this.explosionSystem.explode(tankHitPoint.x, tankHitPoint.y, 30, 50, projectile.getOwnerId());
-        this.audioSystem.playExplosion();
-        projectilesToRemove.push(projectile);
-      } else {
-        // Проверяем попадание в землю
-        let hitPoint: { x: number; y: number } | null = null;
-        const steps = Math.max(10, Math.ceil(distance / 1)); // Проверка каждого пикселя
-        
-        for (let i = 0; i <= steps; i++) {
-          const t = i / steps;
-          const checkX = lastPos.x + dx * t;
-          const checkY = lastPos.y + dy * t;
-          
-          if (this.terrainSystem.isSolid(checkX, checkY)) {
-            hitPoint = { x: checkX, y: checkY };
-            break;
-          }
-        }
 
-        if (hitPoint) {
-          // Попадание в землю
-          // Move projectile sprite to exact hit point for visual consistency
-          projectile.x = hitPoint.x;
-          projectile.y = hitPoint.y;
-          this.saveTrajectory(projectile, hitPoint);
-          this.explosionSystem.explode(hitPoint.x, hitPoint.y, 30, 50, projectile.getOwnerId());
-          this.audioSystem.playExplosion();
-          projectilesToRemove.push(projectile);
-        } else if (projectile.y > this.cameras.main.height || projectile.x < 0 || projectile.x > this.cameras.main.width) {
-          // Снаряд улетел за экран
-          this.saveTrajectory(projectile, { x: projectile.x, y: projectile.y });
-          projectilesToRemove.push(projectile);
-        }
+    collisions.forEach((collision) => {
+      const { projectile, hitPoint, hitType } = collision;
+      
+      // Move projectile sprite to exact hit point for visual consistency
+      projectile.x = hitPoint.x;
+      projectile.y = hitPoint.y;
+
+      if (hitType === 'tank' || hitType === 'terrain') {
+        this.trajectorySystem.saveTrajectory(projectile, hitPoint);
+        this.explosionSystem.explode(hitPoint.x, hitPoint.y, 30, 50, projectile.getOwnerId());
+        this.audioSystem.playExplosion();
+      } else if (hitType === 'outOfBounds') {
+        this.trajectorySystem.saveTrajectory(projectile, hitPoint);
       }
+      
+      projectilesToRemove.push(projectile);
     });
 
-    // Удаляем уничтоженные снаряды
+    // Remove destroyed projectiles
     projectilesToRemove.forEach((projectile) => {
       const index = this.activeProjectiles.indexOf(projectile);
       if (index !== -1) {
+        this.trajectorySystem.removeTrajectory(projectile);
         projectile.destroy();
         this.activeProjectiles.splice(index, 1);
       }
     });
 
-    // Переключаем ход если все снаряды улетели
-    if (projectilesToRemove.length > 0 && this.waitingForProjectile && this.activeProjectiles.length === 0 && !this.isSwitchingTurn) {
-      this.isSwitchingTurn = true;
-      this.time.delayedCall(50, () => {
-        this.switchTurn();
-      });
+    // Switch turn if all projectiles are gone
+    if (projectilesToRemove.length > 0 && this.turnSystem.isWaitingForProjectile() && this.activeProjectiles.length === 0) {
+      this.turnSystem.scheduleTurnSwitch(50);
     }
 
-    // Обновляем траектории и последние позиции для следующего кадра
+    // Update trajectories and last positions for next frame
     this.activeProjectiles.forEach((projectile) => {
-      const trajectory = this.activeTrajectories.get(projectile);
-      if (trajectory) {
-        trajectory.push({ x: projectile.x, y: projectile.y });
-        this.trajectoriesDirty = true; // Mark as dirty when trajectory updates
-      }
+      this.trajectorySystem.addTrajectoryPoint(projectile, { x: projectile.x, y: projectile.y });
       projectile.updateLastPosition();
     });
 
-    // OPTIMIZED: Only redraw trajectories when they actually change
-    if (this.trajectoriesDirty) {
-    this.drawTrajectories();
-      this.trajectoriesDirty = false;
-    }
-  }
-
-  private saveTrajectory(projectile: Projectile, endPoint: { x: number; y: number }): void {
-    const trajectory = this.activeTrajectories.get(projectile);
-    if (trajectory && trajectory.length > 0) {
-      const lastPoint = trajectory[trajectory.length - 1];
-      const distance = Phaser.Math.Distance.Between(lastPoint.x, lastPoint.y, endPoint.x, endPoint.y);
-      
-      if (distance > 0.1) {
-        trajectory.push(endPoint);
-      }
-      
-      this.completedTrajectories.push([...trajectory]);
-      
-      if (this.completedTrajectories.length > this.MAX_TRAJECTORIES) {
-        this.completedTrajectories.shift();
-      }
-      
-      this.activeTrajectories.delete(projectile);
-      this.trajectoriesDirty = true; // Mark as dirty when trajectory completes
-    }
-  }
-
-  private drawTrajectories(): void {
-    this.trajectoryGraphics.clear();
-
-    // OPTIMIZED: Draw completed trajectories with simple lines (not smooth splines)
-    this.completedTrajectories.forEach((trajectory, index) => {
-      if (trajectory.length < 2) return;
-      
-      const colors = [0xffffff, 0xffff00, 0xffaa00, 0xff8800, 0xff6600];
-      const color = colors[Math.min(index, colors.length - 1)];
-      
-      this.trajectoryGraphics.lineStyle(1.5, color, 0.6);
-      this.drawSimpleTrajectory(trajectory);
-    });
-
-    // Draw active trajectory with smooth spline (only one at a time)
-    this.activeTrajectories.forEach((trajectory) => {
-      if (trajectory.length < 2) return;
-      
-      this.trajectoryGraphics.lineStyle(2, 0xffff00, 0.9);
-      this.drawSimpleTrajectory(trajectory); // Use simple lines for performance
-    });
+    // Draw trajectories
+    this.trajectorySystem.drawTrajectories();
   }
 
   /**
-   * OPTIMIZED: Draw trajectory with simple lines (much faster than Catmull-Rom splines)
-   * Subsample points to reduce number of line segments while maintaining shape
+   * Clean up resources when scene shuts down
    */
-  private drawSimpleTrajectory(points: { x: number; y: number }[]): void {
-    if (points.length < 2) return;
-
-      this.trajectoryGraphics.beginPath();
-      this.trajectoryGraphics.moveTo(points[0].x, points[0].y);
-
-    // Subsample: only draw every Nth point for performance (but keep smooth appearance)
-    const step = Math.max(1, Math.floor(points.length / 50)); // Max 50 segments per trajectory
-    
-    for (let i = step; i < points.length; i += step) {
-      this.trajectoryGraphics.lineTo(points[i].x, points[i].y);
+  shutdown(): void {
+    // Clean up systems
+    if (this.uiSystem) {
+      this.uiSystem.destroy();
     }
-    
-    // Always draw the last point
-    if (points.length > 1) {
-      const lastPoint = points[points.length - 1];
-      this.trajectoryGraphics.lineTo(lastPoint.x, lastPoint.y);
+    if (this.turnSystem) {
+      this.turnSystem.destroy();
+    }
+    if (this.gameOverSystem) {
+      this.gameOverSystem.destroy();
+    }
+    if (this.trajectorySystem) {
+      this.trajectorySystem.destroy();
     }
 
-    this.trajectoryGraphics.strokePath();
-  }
+    // Clean up input handlers
+    this.inputHandlers.forEach((handler) => {
+      this.input.keyboard?.off(handler.event, handler.callback);
+    });
+    this.inputHandlers = [];
 
-  /**
-   * Create random level configuration for solo and P2P modes
-   */
-  private createRandomLevelConfig(): ILevelConfig {
-    const biomes = [TerrainBiome.TEMPERATE, TerrainBiome.DESERT, TerrainBiome.ARCTIC, TerrainBiome.VOLCANIC];
-    const shapes = [TerrainShape.HILLS, TerrainShape.MOUNTAINS];
-    const weathers: Array<'none' | 'rain' | 'snow'> = ['none', 'rain', 'snow'];
-    const times: Array<'day' | 'night'> = ['day', 'night'];
-    const seasons: Array<'summer' | 'winter'> = ['summer', 'winter'];
-
-    return {
-      biome: biomes[Math.floor(Math.random() * biomes.length)],
-      shape: shapes[Math.floor(Math.random() * shapes.length)],
-      weather: weathers[Math.floor(Math.random() * weathers.length)],
-      roughness: 0.10 + Math.random() * 0.40, // 0.10 to 0.50
-      timeOfDay: times[Math.floor(Math.random() * times.length)],
-      season: seasons[Math.floor(Math.random() * seasons.length)],
-    };
+    // Clean up event listeners
+    this.events.off('explosion', this.handleExplosion, this);
   }
 }

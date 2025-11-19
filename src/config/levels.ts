@@ -2,9 +2,9 @@ import { type ILevelConfig, TerrainBiome, TerrainShape } from '@/types';
 
 /**
  * Predefined levels for singleplayer mode
- * Levels progressively increase in difficulty through terrain roughness and environmental effects
+ * Levels progressively increase in difficulty through environmental effects
  * 
- * Levels 1-10: Basic progression with increasing roughness, no custom wind
+ * Levels 1-10: Basic progression, no custom wind
  * Levels 11+: Advanced levels with strong wind effects
  */
 export const SINGLEPLAYER_LEVELS: ILevelConfig[] = [
@@ -13,10 +13,11 @@ export const SINGLEPLAYER_LEVELS: ILevelConfig[] = [
     biome: TerrainBiome.TEMPERATE,
     shape: TerrainShape.HILLS,
     weather: 'none',
-    roughness: 0.10,
     timeOfDay: 'day',
     season: 'summer',
     seed: 12345,
+    terrainMinHeight: 0.1,
+    terrainMaxHeight: 0.4,
   },
 
   // Level 2: Night (обязательно ночь)
@@ -24,10 +25,11 @@ export const SINGLEPLAYER_LEVELS: ILevelConfig[] = [
     biome: TerrainBiome.TEMPERATE,
     shape: TerrainShape.HILLS,
     weather: 'none',
-    roughness: 0.12,
     timeOfDay: 'night',
     season: 'summer',
     seed: 23456,
+    terrainMinHeight: 0.12,
+    terrainMaxHeight: 0.78,
   },
 
   // Level 3: Desert biome introduction
@@ -35,10 +37,11 @@ export const SINGLEPLAYER_LEVELS: ILevelConfig[] = [
     biome: TerrainBiome.DESERT,
     shape: TerrainShape.HILLS,
     weather: 'none',
-    roughness: 0.15,
     timeOfDay: 'day',
     season: 'summer',
     seed: 34567,
+    terrainMinHeight: 0.15,
+    terrainMaxHeight: 0.8,
   },
 
   // Level 4: Arctic biome introduction
@@ -46,10 +49,11 @@ export const SINGLEPLAYER_LEVELS: ILevelConfig[] = [
     biome: TerrainBiome.ARCTIC,
     shape: TerrainShape.HILLS,
     weather: 'snow',
-    roughness: 0.17,
     timeOfDay: 'day',
     season: 'winter',
     seed: 45678,
+    terrainMinHeight: 0.13,
+    terrainMaxHeight: 0.82,
   },
 
   // Level 5: Rain weather introduction
@@ -57,10 +61,11 @@ export const SINGLEPLAYER_LEVELS: ILevelConfig[] = [
     biome: TerrainBiome.TEMPERATE,
     shape: TerrainShape.MOUNTAINS,
     weather: 'rain',
-    roughness: 0.19,
     timeOfDay: 'day',
     season: 'summer',
     seed: 56789,
+    terrainMinHeight: 0.15,
+    terrainMaxHeight: 0.85,
   },
 
   // Level 6: Volcanic biome introduction
@@ -68,10 +73,11 @@ export const SINGLEPLAYER_LEVELS: ILevelConfig[] = [
     biome: TerrainBiome.VOLCANIC,
     shape: TerrainShape.HILLS,
     weather: 'none',
-    roughness: 0.21,
     timeOfDay: 'night',
     season: 'summer',
     seed: 67890,
+    terrainMinHeight: 0.14,
+    terrainMaxHeight: 0.83,
   },
 
   // Level 7: Night with snow
@@ -79,10 +85,11 @@ export const SINGLEPLAYER_LEVELS: ILevelConfig[] = [
     biome: TerrainBiome.ARCTIC,
     shape: TerrainShape.MOUNTAINS,
     weather: 'snow',
-    roughness: 0.23,
     timeOfDay: 'night',
     season: 'winter',
     seed: 78901,
+    terrainMinHeight: 0.16,
+    terrainMaxHeight: 0.86,
   },
 
   // Level 8: Desert night
@@ -90,10 +97,11 @@ export const SINGLEPLAYER_LEVELS: ILevelConfig[] = [
     biome: TerrainBiome.DESERT,
     shape: TerrainShape.HILLS,
     weather: 'none',
-    roughness: 0.25,
     timeOfDay: 'night',
     season: 'summer',
     seed: 89012,
+    terrainMinHeight: 0.15,
+    terrainMaxHeight: 0.84,
   },
 
   // Level 9: Volcanic with rain
@@ -101,10 +109,11 @@ export const SINGLEPLAYER_LEVELS: ILevelConfig[] = [
     biome: TerrainBiome.VOLCANIC,
     shape: TerrainShape.MOUNTAINS,
     weather: 'rain',
-    roughness: 0.27,
     timeOfDay: 'day',
     season: 'summer',
     seed: 90123,
+    terrainMinHeight: 0.17,
+    terrainMaxHeight: 0.87,
   },
 
   // Level 10: Mixed challenge
@@ -112,10 +121,11 @@ export const SINGLEPLAYER_LEVELS: ILevelConfig[] = [
     biome: TerrainBiome.TEMPERATE,
     shape: TerrainShape.MOUNTAINS,
     weather: 'snow',
-    roughness: 0.30,
     timeOfDay: 'night',
     season: 'winter',
     seed: 101234,
+    terrainMinHeight: 0.18,
+    terrainMaxHeight: 0.88,
   },
 
   // Level 11: First level with strong wind (rain)
@@ -123,10 +133,11 @@ export const SINGLEPLAYER_LEVELS: ILevelConfig[] = [
     biome: TerrainBiome.TEMPERATE,
     shape: TerrainShape.HILLS,
     weather: 'rain',
-    roughness: 0.30,
     timeOfDay: 'day',
     season: 'summer',
     seed: 111234,
+    terrainMinHeight: 0.16,
+    terrainMaxHeight: 0.86,
     environmentEffects: {
       windX: 1.0,
       // Other effects (windY, gravity, airDensity) will use defaults from EnvironmentSystem
@@ -138,10 +149,11 @@ export const SINGLEPLAYER_LEVELS: ILevelConfig[] = [
     biome: TerrainBiome.ARCTIC,
     shape: TerrainShape.MOUNTAINS,
     weather: 'snow',
-    roughness: 0.32,
     timeOfDay: 'day',
     season: 'winter',
     seed: 121234,
+    terrainMinHeight: 0.19,
+    terrainMaxHeight: 0.89,
     environmentEffects: {
       windX: -1.2,
       // Other effects will use defaults from EnvironmentSystem
@@ -153,10 +165,11 @@ export const SINGLEPLAYER_LEVELS: ILevelConfig[] = [
     biome: TerrainBiome.DESERT,
     shape: TerrainShape.HILLS,
     weather: 'rain',
-    roughness: 0.34,
     timeOfDay: 'night',
     season: 'summer',
     seed: 131234,
+    terrainMinHeight: 0.17,
+    terrainMaxHeight: 0.87,
     environmentEffects: {
       windX: 1.5,
       // Other effects will use defaults from EnvironmentSystem
@@ -168,10 +181,11 @@ export const SINGLEPLAYER_LEVELS: ILevelConfig[] = [
     biome: TerrainBiome.VOLCANIC,
     shape: TerrainShape.MOUNTAINS,
     weather: 'snow',
-    roughness: 0.36,
     timeOfDay: 'day',
     season: 'summer',
     seed: 141234,
+    terrainMinHeight: 0.2,
+    terrainMaxHeight: 0.9,
     environmentEffects: {
       windX: -1.5,
       // Other effects will use defaults from EnvironmentSystem
@@ -183,10 +197,11 @@ export const SINGLEPLAYER_LEVELS: ILevelConfig[] = [
     biome: TerrainBiome.TEMPERATE,
     shape: TerrainShape.MOUNTAINS,
     weather: 'rain',
-    roughness: 0.38,
     timeOfDay: 'night',
     season: 'winter',
     seed: 151234,
+    terrainMinHeight: 0.18,
+    terrainMaxHeight: 0.88,
     environmentEffects: {
       windX: 0.8,
       // Other effects will use defaults from EnvironmentSystem
@@ -198,10 +213,11 @@ export const SINGLEPLAYER_LEVELS: ILevelConfig[] = [
     biome: TerrainBiome.ARCTIC,
     shape: TerrainShape.HILLS,
     weather: 'snow',
-    roughness: 0.40,
     timeOfDay: 'day',
     season: 'winter',
     seed: 161234,
+    terrainMinHeight: 0.19,
+    terrainMaxHeight: 0.89,
     environmentEffects: {
       windX: -0.9,
       // Other effects will use defaults from EnvironmentSystem
@@ -213,10 +229,11 @@ export const SINGLEPLAYER_LEVELS: ILevelConfig[] = [
     biome: TerrainBiome.DESERT,
     shape: TerrainShape.MOUNTAINS,
     weather: 'rain',
-    roughness: 0.42,
     timeOfDay: 'night',
     season: 'summer',
     seed: 171234,
+    terrainMinHeight: 0.2,
+    terrainMaxHeight: 0.9,
     environmentEffects: {
       windX: 1.4,
       // Other effects will use defaults from EnvironmentSystem
@@ -228,10 +245,11 @@ export const SINGLEPLAYER_LEVELS: ILevelConfig[] = [
     biome: TerrainBiome.VOLCANIC,
     shape: TerrainShape.HILLS,
     weather: 'snow',
-    roughness: 0.43,
     timeOfDay: 'day',
     season: 'summer',
     seed: 181234,
+    terrainMinHeight: 0.18,
+    terrainMaxHeight: 0.88,
     environmentEffects: {
       windX: -1.3,
       // Other effects will use defaults from EnvironmentSystem
@@ -243,10 +261,11 @@ export const SINGLEPLAYER_LEVELS: ILevelConfig[] = [
     biome: TerrainBiome.TEMPERATE,
     shape: TerrainShape.MOUNTAINS,
     weather: 'rain',
-    roughness: 0.44,
     timeOfDay: 'night',
     season: 'winter',
     seed: 191234,
+    terrainMinHeight: 0.2,
+    terrainMaxHeight: 0.92,
     environmentEffects: {
       windX: 1.5,
       // Other effects will use defaults from EnvironmentSystem
@@ -258,10 +277,11 @@ export const SINGLEPLAYER_LEVELS: ILevelConfig[] = [
     biome: TerrainBiome.ARCTIC,
     shape: TerrainShape.MOUNTAINS,
     weather: 'snow',
-    roughness: 0.45,
     timeOfDay: 'day',
     season: 'winter',
     seed: 201234,
+    terrainMinHeight: 0.2,
+    terrainMaxHeight: 0.92,
     environmentEffects: {
       windX: -1.5,
       // Other effects will use defaults from EnvironmentSystem

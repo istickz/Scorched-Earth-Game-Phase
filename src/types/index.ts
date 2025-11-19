@@ -96,11 +96,12 @@ export interface ILevelConfig {
   biome: TerrainBiome;
   shape: TerrainShape;
   weather: WeatherType;
-  roughness: number;
   timeOfDay: TimeOfDay;
   season: Season;
   seed?: number; // Optional seed for terrain generation
   environmentEffects?: Partial<IEnvironmentEffects>; // Optional custom environment effects (overrides biome defaults, partial allows overriding only specific properties)
+  terrainMinHeight?: number; // Optional minimum terrain height as percentage (0.0-1.0), defaults to 0.1 (10% of screen height)
+  terrainMaxHeight?: number; // Optional maximum terrain height as percentage (0.0-1.0), defaults to 0.85 (85% of screen height)
 }
 
 /**
@@ -110,9 +111,8 @@ export interface ITerrainConfig {
   width: number;
   height: number;
   seed?: number;
-  roughness?: number;
-  minHeight?: number;
-  maxHeight?: number;
+  terrainMinHeight?: number;
+  terrainMaxHeight?: number;
   skyColor?: number;
   groundColor?: number;
   isNight?: boolean;

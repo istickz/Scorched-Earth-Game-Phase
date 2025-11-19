@@ -14,9 +14,11 @@ import {
   createNESSlider,
   createNESMenuButton,
   createNESPanel,
+  createNESBackground,
   NESColors,
   NESTheme,
 } from '@/utils/NESUI';
+import { AudioSystem } from '@/systems/AudioSystem';
 
 /**
  * Level configuration scene with modular biome/terrain system
@@ -26,7 +28,6 @@ export class LevelEditorScene extends Phaser.Scene {
     biome: TerrainBiome.TEMPERATE,
     shape: TerrainShape.HILLS,
     weather: 'none',
-    roughness: 0.15,
     timeOfDay: 'day',
     season: 'summer',
   };
@@ -37,7 +38,7 @@ export class LevelEditorScene extends Phaser.Scene {
   private seedValueShadow!: Phaser.GameObjects.BitmapText;
   private previewWeatherEmitter?: Phaser.GameObjects.Particles.ParticleEmitter;
   private previewMaskGraphics?: Phaser.GameObjects.Graphics;
-  private menuMusic!: Phaser.Sound.BaseSound | null;
+  private audioSystem!: AudioSystem;
   private previewX!: number;
   private previewY!: number;
   private previewWidth!: number;
@@ -77,6 +78,7 @@ export class LevelEditorScene extends Phaser.Scene {
   }
 
   create(): void {
+    console.log('[LevelEditorScene] create() called - Scene is being created/restarted');
     const screenWidth = this.cameras.main.width;
     const screenHeight = this.cameras.main.height;
 
@@ -89,7 +91,7 @@ export class LevelEditorScene extends Phaser.Scene {
     const nesWhite = '#ffffff';
 
     // Create NES-style background
-    this.createNESBackground(screenWidth, screenHeight);
+    createNESBackground(this, screenWidth, screenHeight);
 
     // Create NES-style title
     this.createNESTitle(screenWidth, screenHeight, nesRed, nesYellow, nesWhite);
@@ -121,7 +123,7 @@ export class LevelEditorScene extends Phaser.Scene {
     const environmentBoxHeight = 200;
     const environmentBottomY = contentStartY + previewHeight + 30 + environmentBoxHeight; // Environment section bottom
     const modifiersStartY = contentStartY + 250;
-    const buttonsStartY = modifiersStartY + 380; // Lowered Start button
+    const buttonsStartY = modifiersStartY + 400; // Start button (increased due to added terrain height sliders)
     const backButtonY = buttonsStartY + 60;
     
     // Calculate required container height based on bottom-most element
@@ -151,7 +153,7 @@ export class LevelEditorScene extends Phaser.Scene {
     // Title height offset (both titles should be at same height) - already defined above
     const contentStartYRelative = -containerHeight / 2 + containerPadding + titleOffsetY;
     const modifiersStartYRelative = contentStartYRelative + 250;
-    const buttonsStartYRelative = modifiersStartYRelative + 380; // Lowered Start button
+    const buttonsStartYRelative = modifiersStartYRelative + 400; // Start button (increased due to added terrain height sliders)
     const backButtonYRelative = buttonsStartYRelative + 60;
 
     // Create "Random All" button attached to right edge of container
@@ -183,11 +185,14 @@ export class LevelEditorScene extends Phaser.Scene {
     this.createStartButton(buttonsCenterX, buttonsStartYRelative);
     this.createBackButton(buttonsCenterX, backButtonYRelative);
 
+    // Initialize audio system
+    this.audioSystem = new AudioSystem();
+
     // Initial preview
     this.updatePreview();
 
     // Play menu music (if loaded)
-    this.playMenuMusic();
+    this.audioSystem.playMenuMusic(this);
   }
 
   /**
@@ -195,25 +200,6 @@ export class LevelEditorScene extends Phaser.Scene {
    */
   private createContentContainer(x: number, y: number, width: number, height: number): void {
     this.contentContainer = createNESContainer(this, x, y, width, height);
-  }
-
-  /**
-   * Create NES-style background
-   */
-  private createNESBackground(width: number, height: number): void {
-    const bgGraphics = this.add.graphics();
-    
-    // Dark blue base
-    bgGraphics.fillStyle(0x2c3e50);
-    bgGraphics.fillRect(0, 0, width, height);
-
-    // Add some pattern for NES feel
-    for (let y = 0; y < height; y += 4) {
-      if (y % 8 === 0) {
-        bgGraphics.fillStyle(0x34495e);
-        bgGraphics.fillRect(0, y, width, 2);
-      }
-    }
   }
 
   /**
@@ -324,10 +310,12 @@ export class LevelEditorScene extends Phaser.Scene {
       icon: icon,
       selected: isSelected,
       onClick: () => {
+      console.log(`[LevelEditorScene] Biome button clicked: ${biome}`);
       this.levelConfig.biome = biome;
       // Reset environment effects to defaults for new biome
       // User can then edit them if they want
       this.levelConfig.environmentEffects = undefined;
+      console.log('[LevelEditorScene] Calling scene.restart() due to biome change');
       this.scene.restart(); // Restart scene to refresh selection
       },
       }
@@ -353,6 +341,7 @@ export class LevelEditorScene extends Phaser.Scene {
     const row4Y = startY + rowSpacing * 4;
     const row5Y = startY + rowSpacing * 5;
     const row6Y = startY + rowSpacing * 6;
+    const row7Y = startY + rowSpacing * 7;
 
     // Terrain Shape
     createNESRadioGroup(
@@ -368,8 +357,10 @@ export class LevelEditorScene extends Phaser.Scene {
       ],
       currentValue: this.levelConfig.shape,
       onChange: (value) => {
+      console.log(`[LevelEditorScene] Terrain shape changed: ${value}`);
       this.levelConfig.shape = value as TerrainShape;
       this.updatePreview();
+      console.log('[LevelEditorScene] Calling scene.restart() due to terrain shape change');
         this.scene.restart();
       },
       }
@@ -390,11 +381,13 @@ export class LevelEditorScene extends Phaser.Scene {
       ],
       currentValue: this.levelConfig.weather,
       onChange: (value) => {
+      console.log(`[LevelEditorScene] Weather changed: ${value}`);
       this.levelConfig.weather = value as WeatherType;
       // Reset environment effects to defaults when weather changes
       // User can then edit them if they want
       this.levelConfig.environmentEffects = undefined;
       this.updatePreview();
+      console.log('[LevelEditorScene] Calling scene.restart() due to weather change');
         this.scene.restart();
       },
       }
@@ -414,11 +407,13 @@ export class LevelEditorScene extends Phaser.Scene {
       ],
       currentValue: this.levelConfig.timeOfDay,
       onChange: (value) => {
+      console.log(`[LevelEditorScene] Time of day changed: ${value}`);
       this.levelConfig.timeOfDay = value as TimeOfDay;
       // Reset environment effects to defaults when time changes
       // User can then edit them if they want
       this.levelConfig.environmentEffects = undefined;
       this.updatePreview();
+      console.log('[LevelEditorScene] Calling scene.restart() due to time of day change');
         this.scene.restart();
       },
       }
@@ -438,34 +433,45 @@ export class LevelEditorScene extends Phaser.Scene {
       ],
       currentValue: this.levelConfig.season,
       onChange: (value) => {
+      console.log(`[LevelEditorScene] Season changed: ${value}`);
       this.levelConfig.season = value as Season;
       this.updatePreview();
+      console.log('[LevelEditorScene] Calling scene.restart() due to season change');
         this.scene.restart();
       },
       }
     );
 
-    // Roughness slider
-    this.createSlider('Roughness:', startX, row5Y, availableWidth);
+    // Terrain Min Height slider
+    this.createTerrainHeightSlider('Min Height:', startX, row5Y, availableWidth, 'terrainMinHeight', 0.1);
+
+    // Terrain Max Height slider
+    this.createTerrainHeightSlider('Max Height:', startX, row6Y, availableWidth, 'terrainMaxHeight', 0.85);
 
     // Seed input
-    this.createSeedInput(startX, row6Y);
+    this.createSeedInput(startX, row7Y);
   }
 
-
   /**
-   * Create a slider for roughness
+   * Create a slider for terrain height parameter
    */
-  private createSlider(label: string, x: number, y: number, availableWidth: number): void {
+  private createTerrainHeightSlider(
+    label: string,
+    x: number,
+    y: number,
+    availableWidth: number,
+    key: 'terrainMinHeight' | 'terrainMaxHeight',
+    defaultValue: number
+  ): void {
     // Вычисляем ширину label для правильного отступа
     const tempText = this.add.bitmapText(0, 0, 'pixel-font', label, NESTheme.defaultFontSize);
     const labelWidth = tempText.width;
     tempText.destroy();
-    
+
     // Отступ 15px после label (как в Environment слайдерах)
     const gapAfterLabel = 15;
     const sliderStartX = x + labelWidth + gapAfterLabel;
-    
+
     // Вычисляем фиксированную позицию конца слайдера для выравнивания значений справа
     // Используем ту же логику, что и для Environment слайдеров
     // availableWidth - это ширина доступной области для секции Modifiers
@@ -473,26 +479,29 @@ export class LevelEditorScene extends Phaser.Scene {
     const valueDisplayWidth = 50; // Ширина для отображения значения
     const gapAfterSlider = 10; // Отступ после слайдера перед значением
     const sliderEndX = x + availableWidth - valueDisplayWidth - gapAfterSlider;
-    
+
     // Ширина слайдера = фиксированная позиция конца - позиция начала
     const sliderWidth = sliderEndX - sliderStartX;
-    
+
+    // Получаем текущее значение или используем значение по умолчанию
+    const currentValue = this.levelConfig[key] ?? defaultValue;
+
     createNESSlider(
       this,
       this.contentContainer,
       {
-      x,
-      y,
-      label,
-      value: this.levelConfig.roughness,
-      min: 0.05,
-      max: 1.0,
-      sliderStartX,
-      sliderWidth,
-      onChange: (value) => {
-        this.levelConfig.roughness = value;
-      this.updatePreview();
-      },
+        x,
+        y,
+        label,
+        value: currentValue,
+        min: 0,
+        max: 1,
+        sliderStartX,
+        sliderWidth,
+        onChange: (value) => {
+          this.levelConfig[key] = value;
+          this.updatePreview();
+        },
       }
     );
   }
@@ -730,86 +739,88 @@ export class LevelEditorScene extends Phaser.Scene {
     // Draw terrain
     this.previewGraphics.fillStyle(colors.ground, 1);
     
-    const terrainStartY = previewHeight * 0.6;
+    // Get terrain height range from config (as percentages 0.0-1.0)
+    // Convert to pixel values relative to preview height
+    const terrainMinHeightPercent = this.levelConfig.terrainMinHeight ?? 0.1;
+    const terrainMaxHeightPercent = this.levelConfig.terrainMaxHeight ?? 0.85;
+    
+    // Convert percentages to pixel heights (from top of preview)
+    // terrainMinHeightPercent = 0.1 means terrain starts at 10% from top
+    // terrainMaxHeightPercent = 0.85 means terrain can go up to 85% from top
+    const terrainMinHeightPx = previewHeight * terrainMinHeightPercent;
+    const terrainMaxHeightPx = previewHeight * terrainMaxHeightPercent;
+    
     this.previewTerrainPoints = [];
     
-    // Generate preview terrain using fractal noise (same as in game)
+    // Generate preview terrain using smooth fractal noise (no small details)
+    // Use modulo to prevent precision loss with large sine arguments
+    const TWO_PI = 2 * Math.PI;
+    const normalizeAngle = (angle: number): number => {
+      // Normalize angle to [0, 2π) range to maintain precision
+      angle = angle % TWO_PI;
+      return angle < 0 ? angle + TWO_PI : angle;
+    };
+    
     for (let x = 0; x <= previewWidth; x += 3) {
       // Primary fractal noise (large scale features)
       const primaryNoise = NoiseGenerator.fractalNoise(x, this.previewSeed, this.levelConfig.shape);
       
-      // Secondary fractal noise with different seed (medium scale features)
-      const secondaryNoise = NoiseGenerator.fractalNoise(
-        x, 
-        this.previewSeed * 1.37 + 5000, 
-        this.levelConfig.shape,
-        this.levelConfig.shape === TerrainShape.HILLS ? 2 : 4
-      );
+      // Add smooth sine waves for smooth hills (normalized to prevent precision loss)
+      const sine1 = Math.sin(normalizeAngle((x + this.previewSeed) * 0.008)) * 0.15;
+      const sine2 = Math.sin(normalizeAngle((x + this.previewSeed * 1.618) * 0.015)) * 0.1;
+      const sine3 = Math.sin(normalizeAngle((x + this.previewSeed * 2.718) * 0.025)) * 0.08;
       
-      // Tertiary noise (small details)
-      const tertiaryNoise = NoiseGenerator.fractalNoise(x, this.previewSeed * 2.71 + 10000, this.levelConfig.shape, 2);
-      
-      // Add some sine waves for smooth hills
-      const sine1 = Math.sin((x + this.previewSeed) * 0.008) * 0.15;
-      const sine2 = Math.sin((x + this.previewSeed * 1.618) * 0.015) * 0.1;
-      const sine3 = Math.sin((x + this.previewSeed * 2.718) * 0.025) * 0.08;
-      
-      // Add local variation using seeded random
-      const localVariation = (NoiseGenerator.seededRandom(this.previewSeed + x * 0.05) - 0.5) * this.levelConfig.roughness * 0.3;
-      
-      // Combine all noise sources with different weights
+      // Combine noise sources with weights (only smooth components, no small details)
       const combinedNoise = 
-        primaryNoise * 0.35 +
-        secondaryNoise * 0.25 +
-        tertiaryNoise * 0.15 +
-        sine1 * 0.1 +
-        sine2 * 0.08 +
-        sine3 * 0.05 +
-        localVariation * 0.02;
+        primaryNoise * 0.5 +
+        sine1 * 0.2 +
+        sine2 * 0.15 +
+        sine3 * 0.15;
       
-      // Normalize and scale for preview
+      // Normalize to 0-1 range
       const normalizedHeight = Phaser.Math.Clamp(combinedNoise, 0, 1);
       
-      // Apply roughness as amplitude multiplier
-      // roughness 0.05-1.0, normalize to range ~0.33-6.67 (0.15 is default = 1.0x)
-      const roughnessMultiplier = this.levelConfig.roughness / 0.15;
-      const waveHeight = (normalizedHeight - 0.5) * previewHeight * 0.4 * roughnessMultiplier;
+      // Calculate terrain height using same formula as TerrainSystem
+      // Map normalizedHeight (0-1) to terrain height range (terrainMinHeightPx to terrainMaxHeightPx)
+      const terrainY = terrainMinHeightPx + (terrainMaxHeightPx - terrainMinHeightPx) * normalizedHeight;
       
       // Clamp y position to stay within preview bounds
-      // terrainStartY is the base line, waveHeight can go up or down from it
-      // But we need to ensure it doesn't go above 0 (top of preview) or below previewHeight (bottom)
-      const y = Phaser.Math.Clamp(terrainStartY + waveHeight, 0, previewHeight);
+      const y = Phaser.Math.Clamp(terrainY, 0, previewHeight);
       this.previewTerrainPoints.push(new Phaser.Geom.Point(x, y));
     }
 
     // Draw terrain shape
-    this.previewGraphics.beginPath();
-    this.previewGraphics.moveTo(0, terrainStartY);
-    
-    this.previewTerrainPoints.forEach(point => {
-      this.previewGraphics.lineTo(point.x, point.y);
-    });
-    
-    this.previewGraphics.lineTo(previewWidth, previewHeight);
-    this.previewGraphics.lineTo(0, previewHeight);
-    this.previewGraphics.closePath();
-    this.previewGraphics.fillPath();
-
-    // Draw snow layer if winter
-    if (BiomeSystem.shouldHaveSnow(this.levelConfig.biome, this.levelConfig.season)) {
-      this.previewGraphics.fillStyle(0xffffff, 0.9);
+    if (this.previewTerrainPoints.length > 0) {
       this.previewGraphics.beginPath();
-      this.previewGraphics.moveTo(0, terrainStartY);
+      // Start from left edge at first terrain point's Y
+      this.previewGraphics.moveTo(0, this.previewTerrainPoints[0].y);
       
       this.previewTerrainPoints.forEach(point => {
-        this.previewGraphics.lineTo(point.x, point.y - 3);
+        this.previewGraphics.lineTo(point.x, point.y);
       });
       
-      this.previewGraphics.lineTo(previewWidth, this.previewTerrainPoints[this.previewTerrainPoints.length - 1].y - 3);
       this.previewGraphics.lineTo(previewWidth, previewHeight);
       this.previewGraphics.lineTo(0, previewHeight);
       this.previewGraphics.closePath();
       this.previewGraphics.fillPath();
+
+      // Draw snow layer if winter
+      if (BiomeSystem.shouldHaveSnow(this.levelConfig.biome, this.levelConfig.season)) {
+        this.previewGraphics.fillStyle(0xffffff, 0.9);
+        this.previewGraphics.beginPath();
+        // Start from left edge at first terrain point's Y (with snow offset)
+        this.previewGraphics.moveTo(0, this.previewTerrainPoints[0].y - 3);
+        
+        this.previewTerrainPoints.forEach(point => {
+          this.previewGraphics.lineTo(point.x, point.y - 3);
+        });
+        
+        this.previewGraphics.lineTo(previewWidth, this.previewTerrainPoints[this.previewTerrainPoints.length - 1].y - 3);
+        this.previewGraphics.lineTo(previewWidth, previewHeight);
+        this.previewGraphics.lineTo(0, previewHeight);
+        this.previewGraphics.closePath();
+        this.previewGraphics.fillPath();
+      }
     }
 
     // Create/update weather effects for preview
@@ -1120,13 +1131,11 @@ export class LevelEditorScene extends Phaser.Scene {
     // Random season
     this.levelConfig.season = Math.random() > 0.5 ? 'summer' : 'winter';
 
-    // Random roughness (0.05 to 1.0)
-    this.levelConfig.roughness = 0.05 + Math.random() * 0.95;
-
     // Random seed
     this.previewSeed = Math.floor(Math.random() * 1000000);
 
     // Restart scene to apply all changes
+    console.log('[LevelEditorScene] Calling scene.restart() due to randomizeAll()');
     this.scene.restart();
   }
 
@@ -1214,7 +1223,7 @@ export class LevelEditorScene extends Phaser.Scene {
    */
   private startGame(): void {
     // Stop menu music before starting game
-    this.stopMenuMusic();
+    this.audioSystem.stopMenuMusic();
     
     // Always get current values from sliders
     const environmentEffects = this.getCurrentEnvironmentEffects();
@@ -1242,87 +1251,24 @@ export class LevelEditorScene extends Phaser.Scene {
   }
 
   /**
-   * Play menu music in cracktro/demoscene style
-   * Reuses existing music instance from MenuScene if it's already playing
-   */
-  private playMenuMusic(): void {
-    try {
-      // Check if music was loaded in cache
-      if (this.cache.audio.exists('menu-music')) {
-        // Check if music is already playing (from MenuScene)
-        // Try to get existing sound by key
-        let existingMusic: Phaser.Sound.BaseSound | null = null;
-        try {
-          // Check if sound with this key already exists
-          interface SoundManagerWithSounds extends Phaser.Sound.BaseSoundManager {
-            sounds?: Phaser.Sound.BaseSound[];
-          }
-          const soundManager = this.sound as SoundManagerWithSounds;
-          if (soundManager.sounds) {
-            existingMusic = soundManager.sounds.find((sound: Phaser.Sound.BaseSound) => {
-              return sound.key === 'menu-music' && sound.isPlaying;
-            }) || null;
-          }
-        } catch {
-          // If we can't access sounds directly, continue to create new instance
-        }
-        
-        if (existingMusic) {
-          // Music is already playing from MenuScene, just store reference
-          this.menuMusic = existingMusic as Phaser.Sound.BaseSound;
-          console.log('Menu music already playing, reusing existing instance');
-          return;
-        }
-        
-        // If we have a reference but it's not playing, restart it
-        if (this.menuMusic) {
-          if (this.menuMusic.isPlaying) {
-            console.log('Menu music already playing');
-            return;
-          } else {
-            // Music was stopped, restart it
-            this.menuMusic.play();
-            console.log('Menu music restarted');
-            return;
-          }
-        }
-        
-        // No existing music found, create new instance
-        this.menuMusic = this.sound.add('menu-music', {
-          volume: 0.5, // Adjust volume (0.0 to 1.0)
-          loop: true,  // Loop the music
-        });
-        
-        // Play music
-        this.menuMusic.play();
-        console.log('Menu music started');
-      } else {
-        console.warn('Menu music not found in cache. Make sure file is in public/assets/sounds/arcade_puzzler.ogg');
-        console.log('Available audio files:', this.cache.audio.getKeys());
-      }
-    } catch (error) {
-      // Music not loaded or error playing
-      console.error('Error playing menu music:', error);
-    }
-  }
-
-  /**
-   * Stop menu music
-   */
-  private stopMenuMusic(): void {
-    if (this.menuMusic) {
-      if (this.menuMusic.isPlaying) {
-        this.menuMusic.stop();
-      }
-      // Don't destroy the sound object, just stop it
-      // It will be reused when returning to menu
-    }
-  }
-
-  /**
    * Clean up when scene is shut down
+   * 
+   * Best Practice: Don't stop music here because shutdown() is called both:
+   * 1. On scene.restart() - we stay in the same scene, music should continue
+   * 2. On scene transition - music is stopped explicitly before transition
+   * 
+   * Music management:
+   * - Uses game.sound (not scene.sound) to persist across scene restarts
+   * - Stopped explicitly in startGame() before transitioning to GameScene
+   * - MenuScene manages its own music when returning to menu
    */
   shutdown(): void {
+    console.log('[LevelEditorScene] shutdown() called - Scene is being shut down');
+    // Don't stop music here - shutdown() is called on scene.restart() too
+    // Music is stopped in startGame() when transitioning to GameScene
+    // When going back to MenuScene, MenuScene manages its own music
+    // This follows Phaser best practices: use game.sound for persistent music
+    
     // Clean up environment sliders (Phaser objects are automatically destroyed with scene)
     this.environmentSliders = {};
     
