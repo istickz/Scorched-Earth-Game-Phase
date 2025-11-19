@@ -1,6 +1,8 @@
 import Phaser from 'phaser';
 import { type IProjectileConfig, type IEnvironmentEffects } from '@/types';
 import { calculateInitialVelocity } from '@/utils/physicsUtils';
+import { getWeaponConfig } from '@/config/weapons';
+import { WeaponType } from '@/types/weapons';
 
 /**
  * Projectile entity with manual ballistic physics
@@ -12,6 +14,7 @@ export class Projectile extends Phaser.GameObjects.Sprite {
   private flightSound?: { stop: () => void };
   private lastX: number = 0;
   private lastY: number = 0;
+  private weaponType: string;
 
   // Physics properties
   private velocityX: number;
@@ -27,6 +30,7 @@ export class Projectile extends Phaser.GameObjects.Sprite {
     this.ownerId = config.ownerId;
     this.lastX = config.x;
     this.lastY = config.y;
+    this.weaponType = config.weaponType || WeaponType.STANDARD;
 
     // Set environment effects (default to normal conditions if not provided)
     this.environmentEffects = config.environmentEffects || {
@@ -36,13 +40,20 @@ export class Projectile extends Phaser.GameObjects.Sprite {
       airDensity: 1.0,
     };
 
-    // Calculate initial velocity
-    const { velocityX, velocityY } = calculateInitialVelocity(config.angle, config.power);
+    // Get weapon config
+    const weaponConfig = getWeaponConfig(this.weaponType as WeaponType);
+    
+    // Calculate initial velocity with weapon speed multiplier
+    const { velocityX, velocityY } = calculateInitialVelocity(
+      config.angle, 
+      config.power,
+      50 * weaponConfig.speedMultiplier
+    );
     this.velocityX = velocityX;
     this.velocityY = velocityY;
 
-    // Create visual representation
-    this.createVisual();
+    // Create visual representation with weapon color
+    this.createVisual(weaponConfig.color);
 
     // Play flight sound if AudioSystem is available
     this.startFlightSound();
@@ -128,19 +139,38 @@ export class Projectile extends Phaser.GameObjects.Sprite {
   }
 
   /**
+   * Get weapon type
+   */
+  public getWeaponType(): string {
+    return this.weaponType;
+  }
+
+  /**
+   * Stop flight sound (public method for external cleanup)
+   */
+  public stopFlightSound(): void {
+    if (this.flightSound) {
+      this.flightSound.stop();
+      this.flightSound = undefined;
+    }
+  }
+
+  /**
    * Create visual representation of projectile
    */
-  private createVisual(): void {
+  private createVisual(color: number = 0xffff00): void {
+    const textureKey = `projectile-${color}`;
+    
     // Check if texture already exists, if not create it
-    if (!this.sceneRef.textures.exists('projectile')) {
+    if (!this.sceneRef.textures.exists(textureKey)) {
       const graphics = this.sceneRef.add.graphics();
-      graphics.fillStyle(0xffff00); // Yellow
+      graphics.fillStyle(color);
       graphics.fillCircle(4, 4, 4);
-      graphics.generateTexture('projectile', 8, 8);
+      graphics.generateTexture(textureKey, 8, 8);
       graphics.destroy();
     }
 
-    this.setTexture('projectile');
+    this.setTexture(textureKey);
     this.setDisplaySize(8, 8);
   }
 

@@ -1,6 +1,7 @@
 import Phaser from 'phaser';
 import { GameMode, type ITankConfig, type AIDifficulty, type ILevelConfig, type IEnvironmentEffects } from '@/types';
 import { TerrainSystem } from '@/systems/TerrainSystem';
+import { SkyRenderer } from '@/systems/SkyRenderer';
 import { Tank } from '@/entities/Tank';
 import { Projectile } from '@/entities/Projectile';
 import { ExplosionSystem } from '@/systems/ExplosionSystem';
@@ -18,6 +19,8 @@ import { TurnSystem } from '@/systems/game/TurnSystem';
 import { GameOverSystem } from '@/systems/game/GameOverSystem';
 import { TrajectorySystem } from '@/systems/game/TrajectorySystem';
 import { ProjectileCollisionSystem, type ICollisionResult } from '@/systems/game/ProjectileCollisionSystem';
+import { getWeaponConfig } from '@/config/weapons';
+import { WeaponType } from '@/types/weapons';
 
 /**
  * Main game scene
@@ -25,6 +28,7 @@ import { ProjectileCollisionSystem, type ICollisionResult } from '@/systems/game
 export class GameScene extends Phaser.Scene {
   private gameMode!: GameMode;
   private terrainSystem!: TerrainSystem;
+  private skyRenderer!: SkyRenderer;
   private tanks: Tank[] = [];
   private activeProjectiles: Projectile[] = [];
   private explosionSystem!: ExplosionSystem;
@@ -128,18 +132,25 @@ export class GameScene extends Phaser.Scene {
     
     // Apply weather tint to sky
     const skyColor = WeatherSystem.applySkyWeatherTint(colors.sky, levelConfig.weather);
+    const isNight = levelConfig.timeOfDay === 'night';
     
-    this.terrainSystem = new TerrainSystem(this, {
-      width,
-      height,
-      terrainMinHeight: (levelConfig.terrainMinHeight ?? 0.1) * height,
-      terrainMaxHeight: (levelConfig.terrainMaxHeight ?? 0.85) * height,
-      seed: terrainSeed,
-      skyColor: skyColor,
-      groundColor: colors.ground,
-      isNight: levelConfig.timeOfDay === 'night',
-      shape: levelConfig.shape,
-    });
+    // Create sky renderer first (renders behind everything)
+    this.skyRenderer = new SkyRenderer(this, width, height, skyColor, isNight);
+    
+    // Create terrain system (only handles terrain logic and rendering)
+    this.terrainSystem = new TerrainSystem(
+      this,
+      {
+        width,
+        height,
+        terrainMinHeight: (levelConfig.terrainMinHeight ?? 0.1) * height,
+        terrainMaxHeight: (levelConfig.terrainMaxHeight ?? 0.85) * height,
+        seed: terrainSeed,
+        shape: levelConfig.shape,
+      },
+      colors.ground,
+      skyColor
+    );
 
     this.explosionSystem = new ExplosionSystem(this, this.terrainSystem);
 
@@ -187,7 +198,7 @@ export class GameScene extends Phaser.Scene {
       this.currentLevelIndex
     );
     
-    this.trajectorySystem = new TrajectorySystem(this, this.tanks, this.terrainSystem);
+    this.trajectorySystem = new TrajectorySystem(this, this.tanks, this.terrainSystem, levelConfig.timeOfDay, levelConfig.biome);
     this.trajectorySystem.setup();
     
     this.collisionSystem = new ProjectileCollisionSystem(this, this.tanks, this.terrainSystem);
@@ -405,19 +416,47 @@ export class GameScene extends Phaser.Scene {
       }
     };
 
+    const weapon1Handler = () => this.switchWeapon(WeaponType.STANDARD);
+    const weapon2Handler = () => this.switchWeapon(WeaponType.ORESHNIK);
+    
     this.input.keyboard?.on('keydown-LEFT', leftHandler);
     this.input.keyboard?.on('keydown-RIGHT', rightHandler);
     this.input.keyboard?.on('keydown-UP', upHandler);
     this.input.keyboard?.on('keydown-DOWN', downHandler);
     this.input.keyboard?.on('keydown-SPACE', spaceHandler);
+    this.input.keyboard?.on('keydown-ONE', weapon1Handler);
+    this.input.keyboard?.on('keydown-TWO', weapon2Handler);
     
     this.inputHandlers.push(
       { event: 'keydown-LEFT', callback: leftHandler },
       { event: 'keydown-RIGHT', callback: rightHandler },
       { event: 'keydown-UP', callback: upHandler },
       { event: 'keydown-DOWN', callback: downHandler },
-      { event: 'keydown-SPACE', callback: spaceHandler }
+      { event: 'keydown-SPACE', callback: spaceHandler },
+      { event: 'keydown-ONE', callback: weapon1Handler },
+      { event: 'keydown-TWO', callback: weapon2Handler }
     );
+  }
+
+  /**
+   * Switch weapon for current tank
+   */
+  private switchWeapon(weaponType: WeaponType): void {
+    if (!this.turnSystem.canFire()) {
+      return;
+    }
+    
+    const currentIndex = this.turnSystem.getCurrentPlayerIndex();
+    if (this.gameMode === GameMode.Multiplayer && currentIndex !== 0) {
+      return;
+    }
+    
+    const currentTank = this.tanks[currentIndex];
+    if (currentTank && currentTank.isAlive()) {
+      currentTank.setWeapon(weaponType);
+      this.updateUI();
+      this.trajectorySystem.updatePreview(currentTank, currentIndex);
+    }
   }
 
   private fireProjectile(): void {
@@ -436,26 +475,89 @@ export class GameScene extends Phaser.Scene {
 
     const fireData = currentTank.fire();
     const ownerId = `tank-${currentIndex}`;
-    const projectile = new Projectile(this, {
-      x: fireData.x,
-      y: fireData.y,
-      angle: fireData.angle,
-      power: fireData.power,
-      ownerId: ownerId,
-      environmentEffects: this.environmentEffects,
-    });
+    const weaponType = fireData.weaponType || WeaponType.STANDARD;
+    
+    // Check if weapon is salvo type (like Oreshnik)
+    const weaponConfig = getWeaponConfig(weaponType as WeaponType);
+    
+    if (weaponConfig.salvoCount && weaponConfig.salvoCount > 1) {
+      // Fire salvo
+      this.fireSalvo(fireData, ownerId, weaponConfig);
+    } else {
+      // Fire single projectile
+      const projectile = new Projectile(this, {
+        x: fireData.x,
+        y: fireData.y,
+        angle: fireData.angle,
+        power: fireData.power,
+        ownerId: ownerId,
+        environmentEffects: this.environmentEffects,
+        weaponType: weaponType,
+      });
 
-    this.lastShotData.set(projectile.getOwnerId(), {
-      angle: fireData.angle,
-      power: fireData.power,
-      ownerId: ownerId,
-    });
+      this.lastShotData.set(projectile.getOwnerId(), {
+        angle: fireData.angle,
+        power: fireData.power,
+        ownerId: ownerId,
+      });
 
-    this.trajectorySystem.initializeTrajectory(projectile);
-    this.activeProjectiles.push(projectile);
-    this.trajectorySystem.clearPreview();
+      this.trajectorySystem.initializeTrajectory(projectile);
+      this.activeProjectiles.push(projectile);
+      this.trajectorySystem.clearPreview();
 
-    this.audioSystem.playFire();
+      this.audioSystem.playFire();
+    }
+  }
+
+  /**
+   * Fire a salvo of projectiles (for weapons like Oreshnik)
+   */
+  private fireSalvo(
+    fireData: { x: number; y: number; angle: number; power: number; weaponType: string },
+    ownerId: string,
+    weaponConfig: any
+  ): void {
+    const salvoCount = weaponConfig.salvoCount || 6;
+    const salvoSpread = weaponConfig.salvoSpread || 8;
+    const salvoDelay = weaponConfig.salvoDelay || 50;
+    
+    // Calculate angle spread
+    const startAngle = fireData.angle - (salvoSpread / 2);
+    const angleStep = salvoSpread / (salvoCount - 1);
+    
+    for (let i = 0; i < salvoCount; i++) {
+      const delay = i * salvoDelay;
+      const angle = startAngle + (angleStep * i);
+      
+      this.time.delayedCall(delay, () => {
+        const projectile = new Projectile(this, {
+          x: fireData.x,
+          y: fireData.y,
+          angle: angle,
+          power: fireData.power,
+          ownerId: ownerId,
+          environmentEffects: this.environmentEffects,
+          weaponType: fireData.weaponType,
+        });
+
+        if (i === 0) {
+          // Only track first projectile for shot data
+          this.lastShotData.set(projectile.getOwnerId(), {
+            angle: fireData.angle,
+            power: fireData.power,
+            ownerId: ownerId,
+          });
+        }
+
+        this.trajectorySystem.initializeTrajectory(projectile);
+        this.activeProjectiles.push(projectile);
+        
+        if (i === 0) {
+          this.trajectorySystem.clearPreview();
+          this.audioSystem.playFire();
+        }
+      });
+    }
   }
 
   private handleExplosion(data: { x: number; y: number; radius: number; damage: number; ownerId?: string }): void {
@@ -469,23 +571,37 @@ export class GameScene extends Phaser.Scene {
       }
     });
 
-    // Наносим урон танкам
+    // Наносим урон танкам (используем сохраненные позиции для безопасности)
     this.tanks.forEach((tank) => {
       if (!tank.isAlive()) {
         return;
       }
 
+      const tankPos = tankPositions.get(tank);
+      if (!tankPos || !tankPos.isAlive) {
+        return; // Танк уже был уничтожен предыдущим взрывом
+      }
+
       const tankHitboxRadius = 35;
       const effectiveRadius = data.radius + tankHitboxRadius;
       
-      const distance = Phaser.Math.Distance.Between(data.x, data.y, tank.x, tank.y);
+      // Используем сохраненную позицию вместо tank.x/tank.y (танк может быть уничтожен)
+      const distance = Phaser.Math.Distance.Between(data.x, data.y, tankPos.x, tankPos.y);
       if (distance <= effectiveRadius) {
         const damage = this.explosionSystem.calculateDamage(
           Math.max(0, distance - tankHitboxRadius),
           data.radius, 
           data.damage
         );
-        tank.takeDamage(damage);
+        
+        // Проверяем еще раз перед нанесением урона
+        if (tank.isAlive()) {
+          tank.takeDamage(damage);
+          // Обновляем флаг после нанесения урона
+          if (!tank.isAlive()) {
+            tankPos.isAlive = false;
+          }
+        }
       }
     });
 
@@ -520,9 +636,8 @@ export class GameScene extends Phaser.Scene {
     }
 
     // Schedule turn switch if waiting for projectile and explosion happened
-    if (this.turnSystem.isWaitingForProjectile() && this.activeProjectiles.length === 0) {
-      this.turnSystem.scheduleTurnSwitch(50);
-    }
+    // Only check once, not for every explosion (prevents multiple turn switches)
+    // This check is now handled in update() loop after all collisions are processed
   }
 
 
@@ -531,6 +646,10 @@ export class GameScene extends Phaser.Scene {
     const isGameOver = this.gameOverSystem.checkGameOver();
     if (isGameOver) {
       this.turnSystem.setGameOver(true);
+      // Stop all projectile flight sounds when game ends
+      this.activeProjectiles.forEach((projectile) => {
+        projectile.stopFlightSound();
+      });
       return;
     }
 
@@ -555,6 +674,8 @@ export class GameScene extends Phaser.Scene {
     const collisions = this.collisionSystem.checkCollisions(this.activeProjectiles);
     const projectilesToRemove: Projectile[] = [];
 
+    let explosionPlayed = false; // Play explosion sound only once per frame
+    
     collisions.forEach((collision) => {
       const { projectile, hitPoint, hitType } = collision;
       
@@ -564,8 +685,24 @@ export class GameScene extends Phaser.Scene {
 
       if (hitType === 'tank' || hitType === 'terrain') {
         this.trajectorySystem.saveTrajectory(projectile, hitPoint);
-        this.explosionSystem.explode(hitPoint.x, hitPoint.y, 30, 50, projectile.getOwnerId());
-        this.audioSystem.playExplosion();
+        
+        // Get weapon config for explosion parameters
+        const weaponType = projectile.getWeaponType() || WeaponType.STANDARD;
+        const weaponConfig = getWeaponConfig(weaponType as WeaponType);
+        
+        this.explosionSystem.explode(
+          hitPoint.x, 
+          hitPoint.y, 
+          weaponConfig.explosionRadius, 
+          weaponConfig.explosionDamage, 
+          projectile.getOwnerId()
+        );
+        
+        // Play explosion sound only once per frame (for salvo weapons)
+        if (!explosionPlayed) {
+          this.audioSystem.playExplosion();
+          explosionPlayed = true;
+        }
       } else if (hitType === 'outOfBounds') {
         this.trajectorySystem.saveTrajectory(projectile, hitPoint);
       }
@@ -614,6 +751,12 @@ export class GameScene extends Phaser.Scene {
     }
     if (this.trajectorySystem) {
       this.trajectorySystem.destroy();
+    }
+    if (this.terrainSystem) {
+      this.terrainSystem.destroy();
+    }
+    if (this.skyRenderer) {
+      this.skyRenderer.destroy();
     }
 
     // Clean up input handlers

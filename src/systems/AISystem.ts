@@ -90,7 +90,7 @@ export class AISystem {
       };
       this.powerSearchRange = {
         min: Math.max(20, baseShot.power - 25),
-        max: Math.min(100, baseShot.power + 25),
+        max: Math.min(200, baseShot.power + 25),
       };
     }
 
@@ -171,7 +171,7 @@ export class AISystem {
         minAngle = 195; // very high arc (cos=-0.966, sin=-0.259)
         maxAngle = 225; // maximum arc (cos=-0.707, sin=-0.707)
         minPower = 80;
-        maxPower = 100;
+        maxPower = 200;
       }
     } else {
       // Shooting RIGHT (target is to the right)
@@ -200,7 +200,7 @@ export class AISystem {
         minAngle = -45; // very high arc (cos=0.707, sin=-0.707)
         maxAngle = 15; // slight down-right
         minPower = 80;
-        maxPower = 100;
+        maxPower = 200;
       }
     }
 
@@ -236,7 +236,7 @@ export class AISystem {
       const expandedMaxAngle = targetIsLeft ? 270 : 90;
       
       for (let angle = expandedMinAngle; angle <= expandedMaxAngle; angle += 3) {
-        for (let power = 30; power <= 100; power += 6) {
+        for (let power = 30; power <= 200; power += 6) {
           const hitPoint = this.simulateTrajectory(startX, startY, angle, power);
           const hitDistance = Phaser.Math.Distance.Between(
             hitPoint.x,
@@ -428,7 +428,7 @@ export class AISystem {
 
     // Обновляем значения на основе корректировок
     const newAngle = lastMiss.angle + angleAdjustment;
-    const newPower = Phaser.Math.Clamp(lastMiss.power + powerAdjustment, 20, 100);
+    const newPower = Phaser.Math.Clamp(lastMiss.power + powerAdjustment, 20, 200);
 
     // Сужаем диапазон угла вокруг нового значения
     const currentAngleRange = this.angleSearchRange.max - this.angleSearchRange.min;
@@ -443,7 +443,7 @@ export class AISystem {
     const narrowedPowerRange = currentPowerRange * narrowingFactor;
     this.powerSearchRange = {
       min: Math.max(20, newPower - narrowedPowerRange / 2),
-      max: Math.min(100, newPower + narrowedPowerRange / 2),
+      max: Math.min(200, newPower + narrowedPowerRange / 2),
     };
 
     // Выбираем значение из суженного диапазона (ближе к центру для быстрой сходимости)
@@ -477,7 +477,7 @@ export class AISystem {
     // It will be converted to turret angle (-90 to 90) in getAIDecision
     return {
       angle: shot.angle + angleDeviation,
-      power: Phaser.Math.Clamp(shot.power + powerDeviation, 20, 100),
+      power: Phaser.Math.Clamp(shot.power + powerDeviation, 20, 200),
     };
   }
 

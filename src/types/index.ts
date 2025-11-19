@@ -50,6 +50,7 @@ export interface IProjectileConfig {
   power: number;
   ownerId: string;
   environmentEffects?: IEnvironmentEffects;
+  weaponType?: string; // Weapon type (from WeaponType enum)
 }
 
 /**
@@ -113,9 +114,6 @@ export interface ITerrainConfig {
   seed?: number;
   terrainMinHeight?: number;
   terrainMaxHeight?: number;
-  skyColor?: number;
-  groundColor?: number;
-  isNight?: boolean;
   shape?: TerrainShape;
 }
 

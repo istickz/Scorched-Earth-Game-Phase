@@ -3,6 +3,7 @@ import { GameMode, type AIDifficulty } from '@/types';
 import { createTextWithShadow } from '@/utils/NESUI';
 import { Tank } from '@/entities/Tank';
 import { SINGLEPLAYER_LEVELS } from '@/config/levels';
+import { getWeaponConfig } from '@/config/weapons';
 
 /**
  * UI System for game HUD (only for GameScene, not for menus)
@@ -40,7 +41,7 @@ export class UISystem {
     this.uiText = uiText;
 
     // Controls text with shadow (bitmap font)
-    const controlsTextStr = 'Controls: ← → (Angle) | ↑ ↓ (Power) | SPACE (Fire)';
+    const controlsTextStr = 'Controls: ← → (Angle) | ↑ ↓ (Power) | SPACE (Fire) | 1-2 (Weapon)';
     createTextWithShadow(
       this.scene,
       this.uiContainer,
@@ -86,8 +87,13 @@ export class UISystem {
     const playerText = isAITurn ? 'AI Thinking...' : `Player ${currentPlayerIndex + 1}`;
     const angleText = `Angle: ${currentTank.getTurretAngle().toFixed(0)}°`;
     const powerText = `Power: ${currentTank.getPower().toFixed(0)}%`;
+    
+    // Weapon display
+    const weaponType = currentTank.getWeapon();
+    const weaponConfig = getWeaponConfig(weaponType as any);
+    const weaponText = `Weapon: ${weaponConfig.name}`;
 
-    const uiTextStr = `${modeText}${levelText} | ${playerText} | ${angleText} | ${powerText}`;
+    const uiTextStr = `${modeText}${levelText} | ${playerText} | ${angleText} | ${powerText} | ${weaponText}`;
     this.uiText.setText(uiTextStr);
     this.uiTextShadow.setText(uiTextStr);
   }

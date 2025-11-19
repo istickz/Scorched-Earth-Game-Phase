@@ -19,7 +19,8 @@ export class Tank extends Phaser.GameObjects.Container {
   private healthBarBg!: Phaser.GameObjects.Graphics;
   private config: ITankConfig;
   private turretAngle: number = 0;
-  private power: number = 50; // 0-100
+  private power: number = 50; // 0-200
+  private weaponType: string = 'standard'; // Current weapon type
   private isRightSideTank: boolean = false;
   private bodyWidth: number = 65; // Longer body to match oval turret
   private bodyHeight: number = 20;
@@ -408,10 +409,10 @@ export class Tank extends Phaser.GameObjects.Container {
   }
 
   /**
-   * Set power (0-100)
+   * Set power (0-200)
    */
   public setPower(power: number): void {
-    this.power = Phaser.Math.Clamp(power, 0, 100);
+    this.power = Phaser.Math.Clamp(power, 0, 200);
   }
 
   /**
@@ -422,9 +423,23 @@ export class Tank extends Phaser.GameObjects.Container {
   }
 
   /**
+   * Set weapon type
+   */
+  public setWeapon(weaponType: string): void {
+    this.weaponType = weaponType;
+  }
+
+  /**
+   * Get current weapon type
+   */
+  public getWeapon(): string {
+    return this.weaponType;
+  }
+
+  /**
    * Fire a projectile
    */
-  public fire(): { x: number; y: number; angle: number; power: number } {
+  public fire(): { x: number; y: number; angle: number; power: number; weaponType: string } {
     // Turret base position relative to tank center
     // Turret is positioned at (0, -bodyHeight/2) in container coordinates
     const turretBaseX = 0;
@@ -454,6 +469,7 @@ export class Tank extends Phaser.GameObjects.Container {
       y: worldY,
       angle: firingAngle, // Use firing angle, not turretAngle
       power: this.power,
+      weaponType: this.weaponType,
     };
   }
 

@@ -114,7 +114,7 @@ export class WeatherSystem {
       }
     });
 
-    this.particleEmitter.setDepth(100); // Above everything
+    this.particleEmitter.setDepth(-0.5); // Render between sky and terrain
   }
 
   /**
@@ -150,7 +150,7 @@ export class WeatherSystem {
       }
     });
 
-    this.particleEmitter.setDepth(100); // Above everything
+    this.particleEmitter.setDepth(-0.5); // Render between sky and terrain
   }
 
   /**

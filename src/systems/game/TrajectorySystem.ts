@@ -3,6 +3,7 @@ import { Tank } from '@/entities/Tank';
 import { Projectile } from '@/entities/Projectile';
 import { TerrainSystem } from '@/systems/TerrainSystem';
 import { calculateTrajectoryPoint } from '@/utils/physicsUtils';
+import { type TerrainBiome, type TimeOfDay } from '@/types';
 
 /**
  * Trajectory System for managing projectile trajectories visualization
@@ -11,6 +12,8 @@ export class TrajectorySystem {
   private scene: Phaser.Scene;
   private tanks: Tank[];
   private terrainSystem: TerrainSystem;
+  private timeOfDay: TimeOfDay;
+  private biome: TerrainBiome;
   
   // Trajectory tracking
   private activeTrajectories: Map<Projectile, { x: number; y: number }[]> = new Map();
@@ -23,11 +26,15 @@ export class TrajectorySystem {
   constructor(
     scene: Phaser.Scene,
     tanks: Tank[],
-    terrainSystem: TerrainSystem
+    terrainSystem: TerrainSystem,
+    timeOfDay: TimeOfDay = 'day',
+    biome: TerrainBiome = 'temperate'
   ) {
     this.scene = scene;
     this.tanks = tanks;
     this.terrainSystem = terrainSystem;
+    this.timeOfDay = timeOfDay;
+    this.biome = biome;
   }
 
   /**
@@ -46,6 +53,26 @@ export class TrajectorySystem {
   }
 
   /**
+   * Get contrast color for trajectory preview based on time of day and biome
+   */
+  private getTrajectoryColor(): number {
+    // For day + light biomes (arctic with snow): use dark color
+    // For night + dark biomes: use light color
+    const isLightBiome = this.biome === 'arctic';
+    const isDay = this.timeOfDay === 'day';
+    
+    if (isDay && isLightBiome) {
+      return 0x000000; // Black for day + arctic
+    } else if (!isDay && !isLightBiome) {
+      return 0xffffff; // White for night + dark biomes
+    } else if (isDay) {
+      return 0x333333; // Dark gray for day + dark biomes
+    } else {
+      return 0xcccccc; // Light gray for night + light biomes
+    }
+  }
+
+  /**
    * Update trajectory preview for current tank
    */
   public updatePreview(currentTank: Tank | undefined, currentPlayerIndex: number): void {
@@ -54,18 +81,18 @@ export class TrajectorySystem {
     }
 
     this.trajectoryPreview.clear();
-    this.trajectoryPreview.lineStyle(2, 0xffffff, 0.5);
+    const trajectoryColor = this.getTrajectoryColor();
+    this.trajectoryPreview.lineStyle(2, trajectoryColor, 0.1); // More transparent
 
     const fireData = currentTank.fire();
     const width = this.scene.cameras.main.width;
     const height = this.scene.cameras.main.height;
 
-    // OPTIMIZED: Draw directly without creating array of Vector2 objects
-    this.trajectoryPreview.beginPath();
-    this.trajectoryPreview.moveTo(fireData.x, fireData.y);
+    // Collect trajectory points first
+    const points: { x: number; y: number }[] = [];
+    const margin = 50;
     
-    let hasPoints = false;
-    for (let t = 0.2; t < 5; t += 0.2) { // Reduced iterations from 50 to 25
+    for (let t = 0.2; t < 10; t += 0.15) {
       const point = calculateTrajectoryPoint(
         fireData.x,
         fireData.y,
@@ -75,14 +102,87 @@ export class TrajectorySystem {
         1.0 // gravity
       );
 
-      if (point.x >= 0 && point.x < width && point.y >= 0 && point.y < height) {
-        this.trajectoryPreview.lineTo(point.x, point.y);
-        hasPoints = true;
-      } else if (hasPoints) {
-        break; // Stop drawing if we've left the screen
+      if (point.x >= -margin && point.x < width + margin && point.y >= -margin && point.y < height + margin) {
+        points.push(point);
+      } else if (points.length > 0) {
+        break;
       }
     }
 
+    // Draw dashed line based on pixel distance (works on all screen sizes)
+    const dashLength = 12; // pixels
+    const gapLength = 8; // pixels
+    
+    let distanceTraveled = 0;
+    let isDrawingDash = true;
+    let lastX = fireData.x;
+    let lastY = fireData.y;
+    let dashStartX = fireData.x;
+    let dashStartY = fireData.y;
+    
+    for (const point of points) {
+      const dx = point.x - lastX;
+      const dy = point.y - lastY;
+      const segmentLength = Math.sqrt(dx * dx + dy * dy);
+      
+      if (segmentLength === 0) continue;
+      
+      const currentDashGapLength = isDrawingDash ? dashLength : gapLength;
+      const remaining = currentDashGapLength - distanceTraveled;
+      
+      if (segmentLength <= remaining) {
+        // Entire segment fits in current dash/gap
+        if (isDrawingDash) {
+          this.trajectoryPreview.moveTo(dashStartX, dashStartY);
+          this.trajectoryPreview.lineTo(point.x, point.y);
+        }
+        distanceTraveled += segmentLength;
+        
+        if (distanceTraveled >= currentDashGapLength) {
+          // Switch to next dash/gap
+          distanceTraveled = 0;
+          isDrawingDash = !isDrawingDash;
+          dashStartX = point.x;
+          dashStartY = point.y;
+        }
+      } else {
+        // Segment crosses dash/gap boundary
+        const ratio = remaining / segmentLength;
+        const boundaryX = lastX + dx * ratio;
+        const boundaryY = lastY + dy * ratio;
+        
+        if (isDrawingDash) {
+          this.trajectoryPreview.moveTo(dashStartX, dashStartY);
+          this.trajectoryPreview.lineTo(boundaryX, boundaryY);
+        }
+        
+        // Switch to next dash/gap
+        isDrawingDash = !isDrawingDash;
+        distanceTraveled = segmentLength - remaining;
+        dashStartX = boundaryX;
+        dashStartY = boundaryY;
+        
+        // Continue drawing if we're in a dash
+        if (isDrawingDash && distanceTraveled > 0) {
+          const remainingRatio = distanceTraveled / segmentLength;
+          const endX = lastX + dx * (ratio + remainingRatio);
+          const endY = lastY + dy * (ratio + remainingRatio);
+          this.trajectoryPreview.moveTo(dashStartX, dashStartY);
+          this.trajectoryPreview.lineTo(endX, endY);
+          
+          if (distanceTraveled >= dashLength) {
+            distanceTraveled = 0;
+            isDrawingDash = false;
+            dashStartX = endX;
+            dashStartY = endY;
+          }
+        }
+      }
+      
+      lastX = point.x;
+      lastY = point.y;
+    }
+    
     this.trajectoryPreview.strokePath();
   }
 
@@ -228,4 +328,5 @@ export class TrajectorySystem {
     this.completedTrajectories = [];
   }
 }
+
 

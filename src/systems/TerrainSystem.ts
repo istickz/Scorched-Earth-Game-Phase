@@ -1,57 +1,29 @@
 import Phaser from 'phaser';
 import { type ITerrainConfig, TerrainShape } from '@/types';
 import { NoiseGenerator } from '@/utils/NoiseGenerator';
+import { TerrainRenderer } from './TerrainRenderer';
 
 /**
  * Terrain system for procedural generation and destruction
  */
 export class TerrainSystem {
-  private scene: Phaser.Scene;
-  private terrainGraphics!: Phaser.GameObjects.Graphics;
-  private skyGraphics!: Phaser.GameObjects.Graphics;
+  private terrainRenderer!: TerrainRenderer;
   private terrainData: boolean[][]; // true = solid, false = air
   private width: number;
   private height: number;
   private terrainHeight: number[]; // Height map for each x position
-  private skyColor: number = 0x87ceeb; // Sky blue
-  private groundColor: number = 0x8b4513; // Brown
-  private isNight: boolean = false;
 
-  constructor(scene: Phaser.Scene, config: ITerrainConfig) {
-    this.scene = scene;
+  constructor(scene: Phaser.Scene, config: ITerrainConfig, groundColor: number, skyColor: number) {
     this.width = config.width;
     this.height = config.height;
     this.terrainData = [];
     this.terrainHeight = [];
 
-    // Use provided colors or randomly choose day or night
-    if (config.skyColor !== undefined && config.groundColor !== undefined) {
-      this.skyColor = config.skyColor;
-      this.groundColor = config.groundColor;
-      this.isNight = config.isNight ?? false;
-    } else {
-      // Fallback to random if no colors provided
-      this.isNight = Math.random() < 0.5;
-      this.setTimeOfDay(this.isNight);
-    }
+    // Create terrain renderer
+    this.terrainRenderer = new TerrainRenderer(scene, this.width, this.height, groundColor, skyColor);
 
     this.generate(config);
     this.render();
-  }
-
-  /**
-   * Set colors based on time of day
-   */
-  private setTimeOfDay(isNight: boolean): void {
-    if (isNight) {
-      // Night colors - deep dark blue sky, slightly darker but pleasant ground
-      this.skyColor = 0x0d0d2e; // Deep dark blue night sky (not too black)
-      this.groundColor = 0x7a6b5a; // Warmer, more pleasant brown for night
-    } else {
-      // Day colors
-      this.skyColor = 0x87ceeb; // Sky blue
-      this.groundColor = 0x8b4513; // Brown
-    }
   }
 
   /**
@@ -110,93 +82,10 @@ export class TerrainSystem {
   }
 
   /**
-   * Render terrain using Phaser Graphics
-   * OPTIMIZED: Uses vertical column rendering instead of pixel-by-pixel
+   * Render terrain using TerrainRenderer
    */
   private render(): void {
-    // Create or clear sky graphics object (separate from terrain to avoid depth issues)
-    if (this.skyGraphics) {
-      this.skyGraphics.clear();
-    } else {
-      this.skyGraphics = this.scene.add.graphics();
-      this.skyGraphics.setDepth(-1); // Render behind everything
-    }
-
-    // Draw sky
-    this.skyGraphics.fillStyle(this.skyColor);
-    this.skyGraphics.fillRect(0, 0, this.width, this.height);
-
-    // Draw stars for night
-    if (this.isNight) {
-      this.drawStars();
-    }
-
-    // Create or clear terrain graphics object
-    if (this.terrainGraphics) {
-      this.terrainGraphics.clear();
-    } else {
-      this.terrainGraphics = this.scene.add.graphics();
-      this.terrainGraphics.setDepth(0); // Render behind other objects but above sky
-    }
-
-    // OPTIMIZED: Draw terrain column by column for MASSIVE performance boost
-    // Instead of drawing each pixel individually, we draw vertical segments
-    this.terrainGraphics.fillStyle(this.groundColor);
-    
-    for (let x = 0; x < this.width; x++) {
-      // Find continuous vertical segments of solid terrain
-      let segmentStart = -1;
-      
-      for (let y = 0; y < this.height; y++) {
-        const isSolid = this.terrainData[x] && this.terrainData[x][y];
-        
-        if (isSolid && segmentStart === -1) {
-          // Start of new segment
-          segmentStart = y;
-        } else if (!isSolid && segmentStart !== -1) {
-          // End of segment - draw it
-          const segmentHeight = y - segmentStart;
-          this.terrainGraphics.fillRect(x, segmentStart, 1, segmentHeight);
-          segmentStart = -1;
-        }
-      }
-      
-      // If segment extends to bottom of screen
-      if (segmentStart !== -1) {
-        const segmentHeight = this.height - segmentStart;
-        this.terrainGraphics.fillRect(x, segmentStart, 1, segmentHeight);
-      }
-    }
-  }
-
-  /**
-   * Draw stars on the night sky
-   */
-  private drawStars(): void {
-    // Use a seed based on width/height for consistent star positions
-    const starSeed = this.width * 1000 + this.height;
-    const numStars = Math.floor((this.width * this.height) / 2500); // Density: ~1 star per 2500 pixels
-    
-    // Single star color - white
-    const starColor = 0xffffff;
-    
-    for (let i = 0; i < numStars; i++) {
-      // Generate star position using seeded random
-      const seed = starSeed + i * 137; // Prime number for better distribution
-      const x = Math.floor(NoiseGenerator.seededRandom(seed) * this.width);
-      const y = Math.floor(NoiseGenerator.seededRandom(seed + 1000) * this.height * 0.6); // Only in upper 60% (sky area)
-      
-      // Make sure star is above terrain
-      const terrainY = this.getHeightAt(x);
-      if (y >= terrainY) {
-        continue; // Skip if star would be in terrain
-      }
-      
-      // Small star size (1 pixel - minimum visible size)
-      // Use fillRect for precise 1x1 pixel stars
-      this.skyGraphics.fillStyle(starColor);
-      this.skyGraphics.fillRect(x, y, 1, 1);
-    }
+    this.terrainRenderer.render(this.terrainData);
   }
 
   /**
@@ -221,43 +110,7 @@ export class TerrainSystem {
    * Only redraws terrain, not sky (sky never changes after initial render)
    */
   private renderColumns(columns: Set<number>): void {
-    if (columns.size === 0 || !this.terrainGraphics) return;
-    
-    // First, clear only the affected columns by drawing sky color over them
-    // This removes old terrain pixels
-    this.terrainGraphics.fillStyle(this.skyColor);
-    for (const x of columns) {
-      // Clear the entire column height
-      this.terrainGraphics.fillRect(x, 0, 1, this.height);
-    }
-    
-    // Now draw terrain for modified columns only
-    this.terrainGraphics.fillStyle(this.groundColor);
-    
-    for (const x of columns) {
-      // Find continuous vertical segments of solid terrain
-      let segmentStart = -1;
-      
-      for (let y = 0; y < this.height; y++) {
-        const isSolid = this.terrainData[x] && this.terrainData[x][y];
-        
-        if (isSolid && segmentStart === -1) {
-          // Start of new segment
-          segmentStart = y;
-        } else if (!isSolid && segmentStart !== -1) {
-          // End of segment - draw it
-          const segmentHeight = y - segmentStart;
-          this.terrainGraphics.fillRect(x, segmentStart, 1, segmentHeight);
-          segmentStart = -1;
-        }
-      }
-      
-      // If segment extends to bottom of screen
-      if (segmentStart !== -1) {
-        const segmentHeight = this.height - segmentStart;
-        this.terrainGraphics.fillRect(x, segmentStart, 1, segmentHeight);
-      }
-    }
+    this.terrainRenderer.renderColumns(columns, this.terrainData);
   }
 
   /**
@@ -327,18 +180,31 @@ export class TerrainSystem {
    * Get the terrain graphics object
    */
   public getGraphics(): Phaser.GameObjects.Graphics {
-    return this.terrainGraphics;
+    return this.terrainRenderer.getGraphics();
+  }
+
+  /**
+   * Update sky color (needed for clearing columns during destruction)
+   */
+  public setSkyColor(color: number): void {
+    this.terrainRenderer.setSkyColor(color);
+  }
+
+  /**
+   * Update ground color
+   */
+  public setGroundColor(color: number): void {
+    this.terrainRenderer.setGroundColor(color);
+    // Re-render terrain with new color
+    this.render();
   }
 
   /**
    * Clean up resources
    */
   public destroy(): void {
-    if (this.terrainGraphics) {
-      this.terrainGraphics.destroy();
-    }
-    if (this.skyGraphics) {
-      this.skyGraphics.destroy();
+    if (this.terrainRenderer) {
+      this.terrainRenderer.destroy();
     }
   }
 }
