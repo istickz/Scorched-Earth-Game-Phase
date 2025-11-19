@@ -417,7 +417,8 @@ export class GameScene extends Phaser.Scene {
     };
 
     const weapon1Handler = () => this.switchWeapon(WeaponType.STANDARD);
-    const weapon2Handler = () => this.switchWeapon(WeaponType.ORESHNIK);
+    const weapon2Handler = () => this.switchWeapon(WeaponType.SALVO);
+    const weapon3Handler = () => this.switchWeapon(WeaponType.HAZELNUT);
     
     this.input.keyboard?.on('keydown-LEFT', leftHandler);
     this.input.keyboard?.on('keydown-RIGHT', rightHandler);
@@ -426,6 +427,7 @@ export class GameScene extends Phaser.Scene {
     this.input.keyboard?.on('keydown-SPACE', spaceHandler);
     this.input.keyboard?.on('keydown-ONE', weapon1Handler);
     this.input.keyboard?.on('keydown-TWO', weapon2Handler);
+    this.input.keyboard?.on('keydown-THREE', weapon3Handler);
     
     this.inputHandlers.push(
       { event: 'keydown-LEFT', callback: leftHandler },
@@ -434,7 +436,8 @@ export class GameScene extends Phaser.Scene {
       { event: 'keydown-DOWN', callback: downHandler },
       { event: 'keydown-SPACE', callback: spaceHandler },
       { event: 'keydown-ONE', callback: weapon1Handler },
-      { event: 'keydown-TWO', callback: weapon2Handler }
+      { event: 'keydown-TWO', callback: weapon2Handler },
+      { event: 'keydown-THREE', callback: weapon3Handler }
     );
   }
 
@@ -453,6 +456,13 @@ export class GameScene extends Phaser.Scene {
     
     const currentTank = this.tanks[currentIndex];
     if (currentTank && currentTank.isAlive()) {
+      // Check if tank has ammunition for this weapon
+      if (!currentTank.hasAmmo(weaponType)) {
+        console.log('No ammunition for', weaponType);
+        // TODO: Show visual feedback (flash text, play sound, etc.)
+        return;
+      }
+      
       currentTank.setWeapon(weaponType);
       this.updateUI();
       this.trajectorySystem.updatePreview(currentTank, currentIndex);
@@ -470,6 +480,13 @@ export class GameScene extends Phaser.Scene {
       return;
     }
 
+    // Check if tank has ammunition for current weapon
+    const currentWeapon = currentTank.getWeapon();
+    if (!currentTank.hasAmmo(currentWeapon)) {
+      console.log('No ammunition for', currentWeapon);
+      return;
+    }
+
     this.turnSystem.setCanFire(false);
     this.turnSystem.setWaitingForProjectile(true);
 
@@ -477,7 +494,10 @@ export class GameScene extends Phaser.Scene {
     const ownerId = `tank-${currentIndex}`;
     const weaponType = fireData.weaponType || WeaponType.STANDARD;
     
-    // Check if weapon is salvo type (like Oreshnik)
+    // Consume ammunition after successful fire
+    currentTank.consumeAmmo();
+    
+    // Check if weapon is salvo type
     const weaponConfig = getWeaponConfig(weaponType as WeaponType);
     
     if (weaponConfig.salvoCount && weaponConfig.salvoCount > 1) {
@@ -510,7 +530,105 @@ export class GameScene extends Phaser.Scene {
   }
 
   /**
-   * Fire a salvo of projectiles (for weapons like Oreshnik)
+   * Check and split hazelnut projectiles when they reach the peak of trajectory
+   * Splits dynamically when projectile starts falling down (velocityY > 0)
+   */
+  private checkAndSplitHazelnutProjectiles(): void {
+    const projectilesToSplit: Projectile[] = [];
+    
+    this.activeProjectiles.forEach((projectile) => {
+      const weaponType = projectile.getWeaponType();
+      if (weaponType === WeaponType.HAZELNUT && !projectile.hasAlreadySplit()) {
+        // Check if projectile has reached the peak and started falling
+        // Split when: velocityY > 0 (falling) AND traveled minimum distance
+        const velocity = projectile.getVelocity();
+        const distanceTraveled = projectile.getDistanceTraveled();
+        const minDistance = 100; // Minimum distance before split (prevents immediate split)
+        
+        if (velocity.y > 0 && distanceTraveled > minDistance) {
+          projectilesToSplit.push(projectile);
+        }
+      }
+    });
+    
+    // Split projectiles
+    projectilesToSplit.forEach((projectile) => {
+      this.splitHazelnutProjectile(projectile);
+    });
+  }
+  
+  /**
+   * Split a hazelnut projectile into multiple projectiles
+   */
+  private splitHazelnutProjectile(projectile: Projectile): void {
+    const weaponConfig = getWeaponConfig(WeaponType.HAZELNUT);
+    const splitCount = weaponConfig.splitCount || 6;
+    const splitSpread = weaponConfig.splitSpread || 15;
+    
+    // Get current projectile state
+    const currentX = projectile.x;
+    const currentY = projectile.y;
+    const ownerId = projectile.getOwnerId();
+    
+    // Get current speed (for maintaining similar drop speed)
+    const currentSpeed = projectile.getSpeed();
+    
+    // Hazelnut projectiles fall vertically down (90 degrees) with slight horizontal spread
+    const baseAngle = 90; // Vertical down in Phaser (0=right, 90=down, 180=left, 270=up)
+    
+    // Calculate horizontal angle spread (small deviation from vertical)
+    const startAngle = baseAngle - (splitSpread / 2);
+    const angleStep = splitSpread / (splitCount - 1);
+    
+    // Use moderate power for vertical drop (not too fast, not too slow)
+    // Slightly less power than current speed to simulate realistic separation
+    const speedMultiplier = 50; // Standard speed multiplier
+    const power = Math.max(30, (currentSpeed / speedMultiplier) * 70); // 70% of current speed, minimum 30
+    
+    // Mark original projectile as split and make it invisible
+    projectile.markAsSplit();
+    projectile.setVisible(false);
+    projectile.stopFlightSound();
+    
+    // Add current position to trajectory before saving (important!)
+    this.trajectorySystem.addTrajectoryPoint(projectile, { x: currentX, y: currentY });
+    
+    // Save trajectory of the original projectile before splitting
+    this.trajectorySystem.saveTrajectory(projectile, { x: currentX, y: currentY });
+    
+    // Create new projectiles
+    for (let i = 0; i < splitCount; i++) {
+      const angle = startAngle + (angleStep * i);
+      
+      const newProjectile = new Projectile(this, {
+        x: currentX,
+        y: currentY,
+        angle: angle,
+        power: power,
+        ownerId: ownerId,
+        environmentEffects: this.environmentEffects,
+        weaponType: WeaponType.STANDARD, // Split projectiles are standard type
+      });
+      
+      // Initialize trajectory for new projectile
+      this.trajectorySystem.initializeTrajectory(newProjectile);
+      this.activeProjectiles.push(newProjectile);
+    }
+    
+    // Remove original projectile from active list immediately (before next update cycle)
+    const index = this.activeProjectiles.indexOf(projectile);
+    if (index !== -1) {
+      this.activeProjectiles.splice(index, 1);
+    }
+    
+    // Destroy visual after a short delay to allow visual effect
+    this.time.delayedCall(10, () => {
+      projectile.destroy();
+    });
+  }
+
+  /**
+   * Fire a salvo of projectiles (multiple projectiles from one barrel)
    */
   private fireSalvo(
     fireData: { x: number; y: number; angle: number; power: number; weaponType: string },
@@ -670,6 +788,9 @@ export class GameScene extends Phaser.Scene {
       projectile.updatePosition(delta);
     });
 
+    // Check for hazelnut projectiles that need to split
+    this.checkAndSplitHazelnutProjectiles();
+
     // Check collisions using collision system
     const collisions = this.collisionSystem.checkCollisions(this.activeProjectiles);
     const projectilesToRemove: Projectile[] = [];
@@ -695,12 +816,14 @@ export class GameScene extends Phaser.Scene {
           hitPoint.y, 
           weaponConfig.explosionRadius, 
           weaponConfig.explosionDamage, 
-          projectile.getOwnerId()
+          projectile.getOwnerId(),
+          weaponType,
+          weaponConfig.explosionColor
         );
         
         // Play explosion sound only once per frame (for salvo weapons)
         if (!explosionPlayed) {
-          this.audioSystem.playExplosion();
+          this.audioSystem.playExplosion(weaponType);
           explosionPlayed = true;
         }
       } else if (hitType === 'outOfBounds') {
@@ -722,6 +845,8 @@ export class GameScene extends Phaser.Scene {
 
     // Switch turn if all projectiles are gone
     if (projectilesToRemove.length > 0 && this.turnSystem.isWaitingForProjectile() && this.activeProjectiles.length === 0) {
+      // Complete current shot (save all trajectories as one shot)
+      this.trajectorySystem.completeCurrentShot();
       this.turnSystem.scheduleTurnSwitch(50);
     }
 

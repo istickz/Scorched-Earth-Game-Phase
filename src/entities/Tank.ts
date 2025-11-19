@@ -21,6 +21,12 @@ export class Tank extends Phaser.GameObjects.Container {
   private turretAngle: number = 0;
   private power: number = 50; // 0-200
   private weaponType: string = 'standard'; // Current weapon type
+  // Ammunition system: standard is infinite (-1), others are limited
+  private ammunition: Map<string, number> = new Map([
+    ['standard', -1],  // -1 means infinite
+    ['salvo', 3],      // 3 salvos
+    ['hazelnut', 3],   // 3 hazelnuts
+  ]);
   private isRightSideTank: boolean = false;
   private bodyWidth: number = 65; // Longer body to match oval turret
   private bodyHeight: number = 20;
@@ -423,10 +429,13 @@ export class Tank extends Phaser.GameObjects.Container {
   }
 
   /**
-   * Set weapon type
+   * Set weapon type (only if available)
    */
   public setWeapon(weaponType: string): void {
-    this.weaponType = weaponType;
+    // Only switch if we have ammunition for this weapon
+    if (this.hasAmmo(weaponType)) {
+      this.weaponType = weaponType;
+    }
   }
 
   /**
@@ -434,6 +443,36 @@ export class Tank extends Phaser.GameObjects.Container {
    */
   public getWeapon(): string {
     return this.weaponType;
+  }
+
+  /**
+   * Check if tank has ammunition for given weapon type
+   */
+  public hasAmmo(weaponType: string): boolean {
+    const ammo = this.ammunition.get(weaponType);
+    return ammo === undefined || ammo === -1 || ammo > 0;
+  }
+
+  /**
+   * Get ammunition count for weapon type (-1 means infinite)
+   */
+  public getAmmo(weaponType: string): number {
+    return this.ammunition.get(weaponType) ?? 0;
+  }
+
+  /**
+   * Consume ammunition for current weapon
+   */
+  public consumeAmmo(): void {
+    const currentAmmo = this.ammunition.get(this.weaponType);
+    if (currentAmmo !== undefined && currentAmmo > 0) {
+      this.ammunition.set(this.weaponType, currentAmmo - 1);
+      
+      // Auto-switch to standard weapon if current weapon runs out
+      if (this.ammunition.get(this.weaponType) === 0) {
+        this.weaponType = 'standard';
+      }
+    }
   }
 
   /**

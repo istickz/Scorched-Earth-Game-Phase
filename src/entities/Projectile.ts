@@ -21,6 +21,12 @@ export class Projectile extends Phaser.GameObjects.Sprite {
   private velocityY: number;
   private readonly SPEED_MULTIPLIER = 50; // simulation speed multiplier (replaces timeScale)
   private environmentEffects: IEnvironmentEffects;
+  
+  // Tracking for splitting projectiles (hazelnut)
+  private distanceTraveled: number = 0;
+  private startX: number;
+  private startY: number;
+  private hasSplit: boolean = false;
 
   constructor(scene: Phaser.Scene, config: IProjectileConfig) {
     // Create sprite without Matter.js physics
@@ -30,6 +36,8 @@ export class Projectile extends Phaser.GameObjects.Sprite {
     this.ownerId = config.ownerId;
     this.lastX = config.x;
     this.lastY = config.y;
+    this.startX = config.x;
+    this.startY = config.y;
     this.weaponType = config.weaponType || WeaponType.STANDARD;
 
     // Set environment effects (default to normal conditions if not provided)
@@ -90,8 +98,15 @@ export class Projectile extends Phaser.GameObjects.Sprite {
     }
 
     // 4. UPDATE POSITION
+    const oldX = this.x;
+    const oldY = this.y;
     this.x += this.velocityX * dt;
     this.y += this.velocityY * dt;
+    
+    // Update distance traveled for splitting projectiles
+    const dx = this.x - oldX;
+    const dy = this.y - oldY;
+    this.distanceTraveled += Math.sqrt(dx * dx + dy * dy);
 
     // 6. ROTATION (visual effect based on velocity)
     this.rotation += speed * 0.02 * dt;
@@ -102,6 +117,20 @@ export class Projectile extends Phaser.GameObjects.Sprite {
    */
   public getSpeed(): number {
     return Math.sqrt(this.velocityX ** 2 + this.velocityY ** 2);
+  }
+  
+  /**
+   * Get current velocity components
+   */
+  public getVelocity(): { x: number; y: number } {
+    return { x: this.velocityX, y: this.velocityY };
+  }
+  
+  /**
+   * Get current direction angle in degrees
+   */
+  public getDirectionAngle(): number {
+    return Math.atan2(this.velocityY, this.velocityX) * (180 / Math.PI);
   }
 
   /**
@@ -143,6 +172,41 @@ export class Projectile extends Phaser.GameObjects.Sprite {
    */
   public getWeaponType(): string {
     return this.weaponType;
+  }
+  
+  /**
+   * Get distance traveled from start position
+   */
+  public getDistanceTraveled(): number {
+    return this.distanceTraveled;
+  }
+  
+  /**
+   * Get start position
+   */
+  public getStartPosition(): { x: number; y: number } {
+    return { x: this.startX, y: this.startY };
+  }
+  
+  /**
+   * Check if projectile should split (for hazelnut type)
+   */
+  public shouldSplit(expectedDistance: number): boolean {
+    return !this.hasSplit && this.distanceTraveled >= expectedDistance;
+  }
+  
+  /**
+   * Mark projectile as split
+   */
+  public markAsSplit(): void {
+    this.hasSplit = true;
+  }
+  
+  /**
+   * Check if projectile has already split
+   */
+  public hasAlreadySplit(): boolean {
+    return this.hasSplit;
   }
 
   /**

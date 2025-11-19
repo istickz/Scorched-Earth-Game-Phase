@@ -17,10 +17,12 @@ export class TrajectorySystem {
   
   // Trajectory tracking
   private activeTrajectories: Map<Projectile, { x: number; y: number }[]> = new Map();
-  private completedTrajectories: { x: number; y: number }[][] = [];
+  // Group trajectories by shot: each shot can have multiple trajectories (e.g., hazelnut split)
+  private completedShots: { x: number; y: number }[][][] = [];
+  private currentShot: { x: number; y: number }[][] = [];
   private trajectoryGraphics!: Phaser.GameObjects.Graphics;
   private trajectoryPreview!: Phaser.GameObjects.Graphics;
-  private readonly MAX_TRAJECTORIES = 5;
+  private readonly MAX_SAVED_SHOTS = 5; // Maximum number of saved shots (each shot can have multiple trajectories)
   private trajectoriesDirty: boolean = false;
 
   constructor(
@@ -214,7 +216,7 @@ export class TrajectorySystem {
   }
 
   /**
-   * Save completed trajectory
+   * Save completed trajectory to current shot
    */
   public saveTrajectory(projectile: Projectile, endPoint: { x: number; y: number }): void {
     const trajectory = this.activeTrajectories.get(projectile);
@@ -226,13 +228,28 @@ export class TrajectorySystem {
         trajectory.push(endPoint);
       }
       
-      this.completedTrajectories.push([...trajectory]);
-      
-      if (this.completedTrajectories.length > this.MAX_TRAJECTORIES) {
-        this.completedTrajectories.shift();
-      }
+      // Add trajectory to current shot
+      this.currentShot.push([...trajectory]);
       
       this.activeTrajectories.delete(projectile);
+      this.trajectoriesDirty = true;
+    }
+  }
+
+  /**
+   * Complete current shot and start a new one
+   * Call this when all projectiles from a shot have finished
+   */
+  public completeCurrentShot(): void {
+    if (this.currentShot.length > 0) {
+      this.completedShots.push([...this.currentShot]);
+      
+      // Remove oldest shot if we exceeded the limit
+      if (this.completedShots.length > this.MAX_SAVED_SHOTS) {
+        this.completedShots.shift();
+      }
+      
+      this.currentShot = [];
       this.trajectoriesDirty = true;
     }
   }
@@ -247,23 +264,34 @@ export class TrajectorySystem {
 
     this.trajectoryGraphics.clear();
 
-    // OPTIMIZED: Draw completed trajectories with simple lines (not smooth splines)
-    this.completedTrajectories.forEach((trajectory, index) => {
+    const colors = [0xffffff, 0xffff00, 0xffaa00, 0xff8800, 0xff6600];
+
+    // Draw completed shots (each shot can have multiple trajectories)
+    this.completedShots.forEach((shot, shotIndex) => {
+      const color = colors[Math.min(shotIndex, colors.length - 1)];
+      
+      shot.forEach((trajectory) => {
+        if (trajectory.length < 2) return;
+        
+        this.trajectoryGraphics.lineStyle(1.5, color, 0.6);
+        this.drawSimpleTrajectory(trajectory);
+      });
+    });
+
+    // Draw current shot trajectories (brighter color)
+    this.currentShot.forEach((trajectory) => {
       if (trajectory.length < 2) return;
       
-      const colors = [0xffffff, 0xffff00, 0xffaa00, 0xff8800, 0xff6600];
-      const color = colors[Math.min(index, colors.length - 1)];
-      
-      this.trajectoryGraphics.lineStyle(1.5, color, 0.6);
+      this.trajectoryGraphics.lineStyle(1.8, 0xffff00, 0.75);
       this.drawSimpleTrajectory(trajectory);
     });
 
-    // Draw active trajectory with smooth spline (only one at a time)
+    // Draw active trajectories (brightest, most visible)
     this.activeTrajectories.forEach((trajectory) => {
       if (trajectory.length < 2) return;
       
       this.trajectoryGraphics.lineStyle(2, 0xffff00, 0.9);
-      this.drawSimpleTrajectory(trajectory); // Use simple lines for performance
+      this.drawSimpleTrajectory(trajectory);
     });
 
     this.trajectoriesDirty = false;
@@ -325,7 +353,8 @@ export class TrajectorySystem {
     }
     
     this.activeTrajectories.clear();
-    this.completedTrajectories = [];
+    this.completedShots = [];
+    this.currentShot = [];
   }
 }
 

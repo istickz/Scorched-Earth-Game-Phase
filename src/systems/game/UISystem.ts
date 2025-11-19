@@ -12,6 +12,7 @@ export class UISystem {
   private scene: Phaser.Scene;
   private uiText!: Phaser.GameObjects.BitmapText;
   private uiTextShadow!: Phaser.GameObjects.BitmapText;
+  private weaponTexts: { text: Phaser.GameObjects.BitmapText; shadow: Phaser.GameObjects.BitmapText }[] = [];
   private uiContainer!: Phaser.GameObjects.Container;
 
   constructor(scene: Phaser.Scene) {
@@ -41,7 +42,7 @@ export class UISystem {
     this.uiText = uiText;
 
     // Controls text with shadow (bitmap font)
-    const controlsTextStr = 'Controls: ← → (Angle) | ↑ ↓ (Power) | SPACE (Fire) | 1-2 (Weapon)';
+    const controlsTextStr = 'Controls: Arrows (Aim) | SPACE (Fire) | 1-3 (Weapon)';
     createTextWithShadow(
       this.scene,
       this.uiContainer,
@@ -53,6 +54,25 @@ export class UISystem {
       0,
       0
     );
+
+    // Create weapon display elements
+    const weaponYStart = 90;
+    const weaponSpacing = 30;
+    
+    for (let i = 0; i < 3; i++) {
+      const weaponUI = createTextWithShadow(
+        this.scene,
+        this.uiContainer,
+        20,
+        weaponYStart + (i * weaponSpacing),
+        '',
+        16,
+        0xaaaaaa,
+        0,
+        0
+      );
+      this.weaponTexts.push(weaponUI);
+    }
   }
 
   /**
@@ -87,15 +107,51 @@ export class UISystem {
     const playerText = isAITurn ? 'AI Thinking...' : `Player ${currentPlayerIndex + 1}`;
     const angleText = `Angle: ${currentTank.getTurretAngle().toFixed(0)}°`;
     const powerText = `Power: ${currentTank.getPower().toFixed(0)}%`;
-    
-    // Weapon display
-    const weaponType = currentTank.getWeapon();
-    const weaponConfig = getWeaponConfig(weaponType as any);
-    const weaponText = `Weapon: ${weaponConfig.name}`;
 
-    const uiTextStr = `${modeText}${levelText} | ${playerText} | ${angleText} | ${powerText} | ${weaponText}`;
+    const uiTextStr = `${modeText}${levelText} | ${playerText} | ${angleText} | ${powerText}`;
     this.uiText.setText(uiTextStr);
     this.uiTextShadow.setText(uiTextStr);
+
+    // Update weapons list
+    this.updateWeaponsList(currentTank);
+  }
+
+  /**
+   * Update weapons list with ammunition counts
+   */
+  private updateWeaponsList(currentTank: Tank): void {
+    const weapons = ['standard', 'salvo', 'hazelnut'];
+    const currentWeapon = currentTank.getWeapon();
+    
+    weapons.forEach((weapon, index) => {
+      const config = getWeaponConfig(weapon as any);
+      const ammo = currentTank.getAmmo(weapon);
+      const ammoText = ammo === -1 ? '∞' : `x${ammo}`;
+      const isCurrent = weapon === currentWeapon;
+      const hasAmmo = ammo === -1 || ammo > 0;
+      
+      // Format text
+      let text = `[${index + 1}] ${config.name}: ${ammoText}`;
+      if (isCurrent) {
+        text = `► ${text} ◄`;
+      }
+      
+      // Choose color based on state
+      let color: number;
+      if (!hasAmmo) {
+        color = 0x555555; // Dark gray - no ammo
+      } else if (isCurrent) {
+        color = 0x00ff00; // Bright green - current weapon
+      } else {
+        color = 0xffffff; // White - available
+      }
+      
+      // Update text
+      const weaponUI = this.weaponTexts[index];
+      weaponUI.text.setText(text);
+      weaponUI.shadow.setText(text);
+      weaponUI.text.setTintFill(color);
+    });
   }
 
   /**

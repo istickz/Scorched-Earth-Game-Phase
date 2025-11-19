@@ -32,8 +32,26 @@ export class AudioSystem {
 
   /**
    * Play explosion sound (MS-DOS style - low rumble)
+   * Generic method - calls weapon-specific explosion
    */
-  public playExplosion(): void {
+  public playExplosion(weaponType: string = 'standard'): void {
+    switch (weaponType) {
+      case 'salvo':
+        this.playSalvoExplosion();
+        break;
+      case 'hazelnut':
+        this.playHazelnutExplosion();
+        break;
+      default:
+        this.playStandardExplosion();
+        break;
+    }
+  }
+
+  /**
+   * Standard explosion - balanced rumble
+   */
+  private playStandardExplosion(): void {
     // MS-DOS style: low frequency rumble with descending tones
     this.playTone(100, 0.2, 'square', 0.5);
     setTimeout(() => {
@@ -46,6 +64,44 @@ export class AudioSystem {
     setTimeout(() => {
       this.playTone(200, 0.05, 'square', 0.2);
     }, 150);
+  }
+
+  /**
+   * Salvo explosion - sharp, quick blast
+   */
+  private playSalvoExplosion(): void {
+    // Sharper, faster explosion with higher frequencies
+    this.playTone(150, 0.12, 'sawtooth', 0.5);
+    setTimeout(() => {
+      this.playTone(120, 0.1, 'sawtooth', 0.45);
+    }, 30);
+    setTimeout(() => {
+      this.playTone(90, 0.08, 'sawtooth', 0.35);
+    }, 60);
+    // Sharp crack at the end
+    setTimeout(() => {
+      this.playTone(300, 0.04, 'square', 0.3);
+    }, 90);
+  }
+
+  /**
+   * Hazelnut explosion - deep kinetic impact
+   */
+  private playHazelnutExplosion(): void {
+    // Deep impact with penetration sound
+    // Initial heavy thud
+    this.playTone(70, 0.25, 'triangle', 0.6);
+    setTimeout(() => {
+      this.playTone(50, 0.2, 'triangle', 0.5);
+    }, 60);
+    // Penetration "crack"
+    setTimeout(() => {
+      this.playTone(250, 0.08, 'square', 0.4);
+    }, 120);
+    // Deep rumble
+    setTimeout(() => {
+      this.playTone(40, 0.15, 'triangle', 0.4);
+    }, 180);
   }
 
   /**

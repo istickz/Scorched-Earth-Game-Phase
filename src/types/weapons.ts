@@ -7,7 +7,8 @@
  */
 export enum WeaponType {
   STANDARD = 'standard',      // Обычный снаряд
-  ORESHNIK = 'oreshnik',      // Орешник - залповая система
+  SALVO = 'salvo',            // Залповая система - несколько снарядов из одного дула
+  HAZELNUT = 'hazelnut',      // Орешник - один снаряд разделяется на 6 в середине пути
 }
 
 /**
@@ -30,6 +31,11 @@ export interface IWeaponConfig {
   salvoCount?: number;               // Количество снарядов в залпе
   salvoSpread?: number;              // Разброс угла в градусах для залпа
   salvoDelay?: number;               // Задержка между выстрелами в мс
+  
+  // Hazelnut properties (for splitting projectiles)
+  splitCount?: number;               // Количество снарядов после разделения
+  splitSpread?: number;              // Разброс угла в градусах для разделенных снарядов
+  splitDistance?: number;            // Расстояние в пикселях до разделения (если не указано, используется половина траектории)
   
   // Visual
   color: number;                     // Цвет снаряда
