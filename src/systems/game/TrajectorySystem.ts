@@ -4,6 +4,7 @@ import { Projectile } from '@/entities/Projectile';
 import { TerrainSystem } from '@/systems/TerrainSystem';
 import { calculateTrajectoryPoint } from '@/utils/physicsUtils';
 import { type TerrainBiome, type TimeOfDay } from '@/types';
+import { type Weapon } from '@/entities/weapons';
 
 /**
  * Trajectory System for managing projectile trajectories visualization
@@ -73,7 +74,7 @@ export class TrajectorySystem {
   /**
    * Update trajectory preview for current tank
    */
-  public updatePreview(currentTank: Tank | undefined, _currentPlayerIndex: number): void {
+  public updatePreview(currentTank: Tank | undefined, _currentPlayerIndex: number, weapon?: Weapon): void {
     if (!currentTank || !currentTank.isAlive()) {
       return;
     }
@@ -86,6 +87,10 @@ export class TrajectorySystem {
     const width = this.scene.cameras.main.width;
     const height = this.scene.cameras.main.height;
 
+    // Get weapon speed multiplier for accurate preview
+    const physicsConfig = weapon?.getPhysicsConfig();
+    const speedMultiplier = physicsConfig ? 50 * physicsConfig.speedMultiplier : 50;
+
     // Collect trajectory points first
     const points: { x: number; y: number }[] = [];
     const margin = 50;
@@ -97,7 +102,8 @@ export class TrajectorySystem {
         fireData.angle,
         fireData.power,
         t,
-        1.0 // gravity
+        1.0, // gravity
+        speedMultiplier
       );
 
       if (point.x >= -margin && point.x < width + margin && point.y >= -margin && point.y < height + margin) {

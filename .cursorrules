@@ -240,6 +240,25 @@ Before considering code complete, verify:
 9. ✅ Run `npm run lint` - no warnings
 10. ✅ Run `npm run build` - compiles successfully
 
+## Design Patterns
+
+### When to Use Inheritance vs Composition
+- **Inheritance**: Use for families of related objects with shared behavior (e.g., Weapon base class with StandardWeapon, SalvoWeapon subclasses)
+- **Composition**: Use for combining independent behaviors (e.g., Tank contains multiple systems)
+- **Rule**: If objects share a common interface and behavior structure, inheritance is appropriate
+
+### Common Patterns in This Project
+- **Strategy Pattern**: Different weapon firing strategies (StandardWeapon, SalvoWeapon, HazelnutWeapon)
+- **Template Method**: Base Weapon class defines structure, subclasses implement specifics
+- **Factory Pattern**: WeaponFactory creates weapon instances by type
+- **Component Pattern**: Systems (TrajectorySystem, ExplosionSystem) handle specific concerns
+
+### Weapon System Architecture
+- **Weapon Classes**: Handle weapon-specific logic and data (firing plans, splitting logic)
+- **GameScene**: Manages Projectile lifecycle (creation, tracking, destruction)
+- **TrajectorySystem**: Handles trajectory visualization using weapon physics parameters
+- **Separation**: Weapon generates fire plans (IFirePlan), GameScene executes them
+
 ## When You're Unsure
 - Ask clarifying questions before implementing
 - Propose multiple solutions with trade-offs

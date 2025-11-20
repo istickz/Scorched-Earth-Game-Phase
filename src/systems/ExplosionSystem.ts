@@ -1,6 +1,6 @@
 import Phaser from 'phaser';
 import { TerrainSystem } from './TerrainSystem';
-import { getWeaponConfig } from '@/config/weapons';
+import { WeaponFactory } from '@/entities/weapons';
 import { WeaponType } from '@/types/weapons';
 
 /**
@@ -40,8 +40,9 @@ export class ExplosionSystem {
     weaponType: string = 'standard',
     explosionColor?: number
   ): void {
-    // Get weapon config for crater shape
-    const weaponConfig = getWeaponConfig(weaponType as WeaponType);
+    // Get weapon instance for crater shape
+    const weapon = WeaponFactory.getWeapon(weaponType as WeaponType);
+    const explosionConfig = weapon.getExplosionConfig();
     
     // Create explosion particles FIRST (visual feedback - appears immediately)
     this.createExplosionParticles(x, y, radius, weaponType, explosionColor);
@@ -55,11 +56,25 @@ export class ExplosionSystem {
       x, 
       y, 
       radius,
-      weaponConfig.explosionShape || 'circle',
-      weaponConfig.explosionShapeRatio || 1.0
+      explosionConfig.shape,
+      explosionConfig.shapeRatio
     );
 
     // Screen shake disabled for better performance
+  }
+
+  /**
+   * Create visual explosion effect without terrain destruction
+   * Used for mid-air explosions (e.g., hazelnut split)
+   */
+  public createVisualExplosion(
+    x: number,
+    y: number,
+    radius: number,
+    weaponType: string = 'standard',
+    explosionColor?: number
+  ): void {
+    this.createExplosionParticles(x, y, radius, weaponType, explosionColor);
   }
 
   /**

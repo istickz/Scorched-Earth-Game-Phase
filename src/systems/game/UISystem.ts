@@ -3,7 +3,7 @@ import { GameMode } from '@/types';
 import { createTextWithShadow } from '@/utils/NESUI';
 import { Tank } from '@/entities/Tank';
 import { SINGLEPLAYER_LEVELS } from '@/config/levels';
-import { getWeaponConfig } from '@/config/weapons';
+import { WeaponFactory } from '@/entities/weapons';
 import { WeaponType } from '@/types/weapons';
 
 /**
@@ -60,7 +60,7 @@ export class UISystem {
     const weaponYStart = 90;
     const weaponSpacing = 30;
     
-    for (let i = 0; i < 3; i++) {
+    for (let i = 0; i < 4; i++) {
       const weaponUI = createTextWithShadow(
         this.scene,
         this.uiContainer,
@@ -121,18 +121,18 @@ export class UISystem {
    * Update weapons list with ammunition counts
    */
   private updateWeaponsList(currentTank: Tank): void {
-    const weapons = ['standard', 'salvo', 'hazelnut'];
+    const weapons = ['standard', 'salvo', 'hazelnut', 'bouncing'];
     const currentWeapon = currentTank.getWeapon();
     
     weapons.forEach((weapon, index) => {
-      const config = getWeaponConfig(weapon as WeaponType);
+      const weaponInstance = WeaponFactory.getWeapon(weapon as WeaponType);
       const ammo = currentTank.getAmmo(weapon);
       const ammoText = ammo === -1 ? '∞' : `x${ammo}`;
       const isCurrent = weapon === currentWeapon;
       const hasAmmo = ammo === -1 || ammo > 0;
       
       // Format text
-      let text = `[${index + 1}] ${config.name}: ${ammoText}`;
+      let text = `[${index + 1}] ${weaponInstance.name}: ${ammoText}`;
       if (isCurrent) {
         text = `► ${text} ◄`;
       }
