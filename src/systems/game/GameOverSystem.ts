@@ -14,6 +14,7 @@ export class GameOverSystem {
   private aiDifficulty: AIDifficulty;
   private currentLevelIndex: number;
   private gameOverShown: boolean = false;
+  private waitingForProjectiles: boolean = false;
   
   // UI elements for cleanup
   private gameOverTexts: Phaser.GameObjects.BitmapText[] = [];
@@ -37,15 +38,51 @@ export class GameOverSystem {
    * Check if game is over and handle accordingly
    * Returns true if game is over, false otherwise
    */
-  public checkGameOver(): boolean {
+  public checkGameOver(activeProjectileCount: number): boolean {
     if (this.gameOverShown) {
       return true; // Already shown game over screen
     }
 
+    // If we're waiting for projectiles to finish
+    if (this.waitingForProjectiles) {
+      if (activeProjectileCount === 0) {
+        // All projectiles finished, now show game over screen
+        this.gameOverShown = true;
+        this.showGameOverForWinner();
+        return true;
+      }
+      // Still waiting for projectiles
+      return false;
+    }
+
     const aliveTanks = this.tanks.filter((tank) => tank.isAlive());
 
-    if (aliveTanks.length === 1) {
+    // Check for winner (1 tank alive) or draw (0 tanks alive)
+    if (aliveTanks.length === 1 || aliveTanks.length === 0) {
+      // Game is over, but check if there are projectiles still flying
+      if (activeProjectileCount > 0) {
+        // Wait for projectiles to finish before showing game over screen
+        this.waitingForProjectiles = true;
+        return false;
+      }
+      
+      // No projectiles, show game over immediately
       this.gameOverShown = true;
+      this.showGameOverForWinner();
+      return true;
+    }
+    
+    return false;
+  }
+
+  /**
+   * Show game over screen for the winner
+   * Extracted to avoid duplication in checkGameOver logic
+   */
+  private showGameOverForWinner(): void {
+    const aliveTanks = this.tanks.filter((tank) => tank.isAlive());
+    
+    if (aliveTanks.length === 1) {
       const winnerIndex = this.tanks.findIndex((tank) => tank.isAlive());
       
       // For singleplayer mode, check if player won and advance to next level
@@ -64,14 +101,10 @@ export class GameOverSystem {
         // AI won or other modes
         this.showGameOver(`Player ${winnerIndex + 1} Wins!`);
       }
-      return true;
-    } else if (aliveTanks.length === 0) {
-      this.gameOverShown = true;
+    } else {
+      // Draw (0 tanks alive)
       this.showGameOver('Draw!');
-      return true;
     }
-    
-    return false;
   }
 
   /**

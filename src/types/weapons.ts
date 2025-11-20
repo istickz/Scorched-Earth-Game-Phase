@@ -28,6 +28,8 @@ export interface IWeaponConfig {
   // Explosion
   explosionRadius: number;           // Радиус взрыва
   explosionDamage: number;           // Урон
+  explosionShape?: 'circle' | 'vertical' | 'horizontal';  // Форма кратера
+  explosionShapeRatio?: number;      // Соотношение сторон для овалов (default: 1.0)
   
   // Salvo properties (for multi-projectile weapons)
   salvoCount?: number;               // Количество снарядов в залпе

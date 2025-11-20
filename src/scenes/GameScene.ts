@@ -761,7 +761,7 @@ export class GameScene extends Phaser.Scene {
 
   update(_time: number, delta: number): void {
     // Check if game is over
-    const isGameOver = this.gameOverSystem.checkGameOver();
+    const isGameOver = this.gameOverSystem.checkGameOver(this.activeProjectiles.length);
     if (isGameOver) {
       this.turnSystem.setGameOver(true);
       // Stop all projectile flight sounds when game ends
@@ -847,7 +847,7 @@ export class GameScene extends Phaser.Scene {
     if (projectilesToRemove.length > 0 && this.turnSystem.isWaitingForProjectile() && this.activeProjectiles.length === 0) {
       // Complete current shot (save all trajectories as one shot)
       this.trajectorySystem.completeCurrentShot();
-      this.turnSystem.scheduleTurnSwitch(50);
+      this.turnSystem.scheduleTurnSwitch(500); // Wait for explosion animations to be visible
     }
 
     // Update trajectories and last positions for next frame
