@@ -26,6 +26,7 @@ export class TurnSystem {
   // Callbacks
   private onTurnChanged?: (newIndex: number) => void;
   private onFireRequested?: () => void;
+  private onShieldRequested?: (shieldType: string) => void;
   private onUIUpdate?: () => void;
 
   constructor(
@@ -46,10 +47,12 @@ export class TurnSystem {
   public setCallbacks(callbacks: {
     onTurnChanged?: (newIndex: number) => void;
     onFireRequested?: () => void;
+    onShieldRequested?: (shieldType: string) => void;
     onUIUpdate?: () => void;
   }): void {
     this.onTurnChanged = callbacks.onTurnChanged;
     this.onFireRequested = callbacks.onFireRequested;
+    this.onShieldRequested = callbacks.onShieldRequested;
     this.onUIUpdate = callbacks.onUIUpdate;
   }
 
@@ -204,26 +207,48 @@ export class TurnSystem {
       return;
     }
 
-    this.aiSystem.getAIDecision(aiTank, playerTank, (angle: number, power: number) => {
-      if (this.gameOver) {
-        return; // Игра окончена в процессе принятия решения AI
-      }
-      
-      if (this.currentPlayerIndex !== 1) {
-        this.currentPlayerIndex = 1;
-      }
+    this.aiSystem.getAIDecision(
+      aiTank, 
+      playerTank, 
+      (angle: number, power: number) => {
+        if (this.gameOver) {
+          return; // Игра окончена в процессе принятия решения AI
+        }
+        
+        if (this.currentPlayerIndex !== 1) {
+          this.currentPlayerIndex = 1;
+        }
 
-      aiTank.setTurretAngle(angle);
-      aiTank.setPower(power);
+        aiTank.setTurretAngle(angle);
+        aiTank.setPower(power);
 
-      if (this.onUIUpdate) {
-        this.onUIUpdate();
-      }
+        if (this.onUIUpdate) {
+          this.onUIUpdate();
+        }
 
-      if (this.currentPlayerIndex === 1 && this.onFireRequested) {
-        this.onFireRequested();
+        if (this.currentPlayerIndex === 1 && this.onFireRequested) {
+          this.onFireRequested();
+        }
+      },
+      (shieldType: string) => {
+        // AI decided to activate shield
+        if (this.gameOver) {
+          return;
+        }
+        
+        if (this.currentPlayerIndex !== 1) {
+          this.currentPlayerIndex = 1;
+        }
+
+        if (this.onUIUpdate) {
+          this.onUIUpdate();
+        }
+
+        if (this.currentPlayerIndex === 1 && this.onShieldRequested) {
+          this.onShieldRequested(shieldType);
+        }
       }
-    });
+    );
   }
 
   /**

@@ -126,6 +126,24 @@ onTurnChanged: (newIndex: number) => { ... } // newIndex not used
 onTurnChanged: (_newIndex: number) => { ... }
 ```
 
+### Factory Methods & Type Casting
+When calling factory methods (e.g., `ShieldFactory.getShield()`, `WeaponFactory.getWeapon()`), always use proper types instead of `any`:
+```typescript
+// ❌ WRONG - using any for type casting
+const shield = ShieldFactory.getShield(weapon as any);
+
+// ✅ CORRECT - use proper type (import ShieldType from @/types/shields)
+import { ShieldType } from '@/types/shields';
+const shield = ShieldFactory.getShield(weapon as ShieldType);
+
+// ❌ WRONG - using any for weapon factory
+const weapon = WeaponFactory.getWeapon(weaponType as any);
+
+// ✅ CORRECT - use proper type (import WeaponType from @/types/weapons)
+import { WeaponType } from '@/types/weapons';
+const weapon = WeaponFactory.getWeapon(weaponType as WeaponType);
+```
+
 ### Phaser Types
 ```typescript
 // Always type scene references
@@ -179,9 +197,11 @@ graphics.fillCircle(0, 0, radius); // Draw at origin
 ### TypeScript
 - ❌ **NEVER use `enum`** - use const objects (causes build errors with erasableSyntaxOnly)
 - ❌ **NEVER use `any`** - always specify proper types
+- ❌ Don't use `any` when calling factory methods - import and use proper types (e.g., `ShieldType`, `WeaponType`)
 - ❌ Don't leave unused imports or parameters (causes linter warnings)
 - ❌ Don't add trailing commas in const objects meant to be enums
 - ✅ Prefix unused parameters with `_` to indicate intentional non-use
+- ✅ Import proper types from `@/types/*` when working with factories
 
 ### Phaser Graphics
 - ❌ Don't draw at absolute coordinates in Graphics (causes random visuals)

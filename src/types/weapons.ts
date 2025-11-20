@@ -9,7 +9,9 @@ export const WeaponType = {
   STANDARD: 'standard',      // Обычный снаряд
   SALVO: 'salvo',            // Залповая система - несколько снарядов из одного дула
   HAZELNUT: 'hazelnut',      // Орешник - один снаряд разделяется на 6 в середине пути
-  BOUNCING: 'bouncing'       // Рикошет - отскакивает от поверхности несколько раз
+  BOUNCING: 'bouncing',      // Рикошет - отскакивает от поверхности несколько раз
+  SHIELD_SINGLE_USE: 'shield_single_use',  // Одноразовый щит
+  SHIELD_MULTI_USE: 'shield_multi_use'      // Многоразовый щит
 } as const;
 
 export type WeaponType = typeof WeaponType[keyof typeof WeaponType];
