@@ -26,6 +26,7 @@ export class Tank extends Phaser.GameObjects.Container {
     ['standard', -1],  // -1 means infinite
     ['salvo', 3],      // 3 salvos
     ['hazelnut', 3],   // 3 hazelnuts
+    ['bouncing', 3],   // 3 bouncing shells
   ]);
   private isRightSideTank: boolean = false;
   private bodyWidth: number = 65; // Longer body to match oval turret

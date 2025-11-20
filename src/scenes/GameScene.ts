@@ -19,8 +19,9 @@ import { TurnSystem } from '@/systems/game/TurnSystem';
 import { GameOverSystem } from '@/systems/game/GameOverSystem';
 import { TrajectorySystem } from '@/systems/game/TrajectorySystem';
 import { ProjectileCollisionSystem } from '@/systems/game/ProjectileCollisionSystem';
-import { getWeaponConfig } from '@/config/weapons';
+import { WeaponFactory } from '@/entities/weapons';
 import { WeaponType } from '@/types/weapons';
+import { type IFirePlan } from '@/types/weapons';
 
 /**
  * Main game scene
@@ -335,7 +336,8 @@ export class GameScene extends Phaser.Scene {
         const newAngle = this.tanks[currentIndex].getTurretAngle() - 5;
         this.tanks[currentIndex].setTurretAngle(newAngle);
         this.updateUI();
-        this.trajectorySystem.updatePreview(this.tanks[currentIndex], currentIndex);
+        const weapon = WeaponFactory.getWeapon(this.tanks[currentIndex].getWeapon() as WeaponType);
+        this.trajectorySystem.updatePreview(this.tanks[currentIndex], currentIndex, weapon);
         if (this.networkSync && this.gameMode === GameMode.Multiplayer) {
           this.networkSync.sendAngle(newAngle);
         }
@@ -354,7 +356,8 @@ export class GameScene extends Phaser.Scene {
         const newAngle = this.tanks[currentIndex].getTurretAngle() + 5;
         this.tanks[currentIndex].setTurretAngle(newAngle);
         this.updateUI();
-        this.trajectorySystem.updatePreview(this.tanks[currentIndex], currentIndex);
+        const weapon = WeaponFactory.getWeapon(this.tanks[currentIndex].getWeapon() as WeaponType);
+        this.trajectorySystem.updatePreview(this.tanks[currentIndex], currentIndex, weapon);
         if (this.networkSync && this.gameMode === GameMode.Multiplayer) {
           this.networkSync.sendAngle(newAngle);
         }
@@ -373,7 +376,8 @@ export class GameScene extends Phaser.Scene {
         const newPower = this.tanks[currentIndex].getPower() + 5;
         this.tanks[currentIndex].setPower(newPower);
         this.updateUI();
-        this.trajectorySystem.updatePreview(this.tanks[currentIndex], currentIndex);
+        const weapon = WeaponFactory.getWeapon(this.tanks[currentIndex].getWeapon() as WeaponType);
+        this.trajectorySystem.updatePreview(this.tanks[currentIndex], currentIndex, weapon);
         if (this.networkSync && this.gameMode === GameMode.Multiplayer) {
           this.networkSync.sendPower(newPower);
         }
@@ -392,7 +396,8 @@ export class GameScene extends Phaser.Scene {
         const newPower = this.tanks[currentIndex].getPower() - 5;
         this.tanks[currentIndex].setPower(newPower);
         this.updateUI();
-        this.trajectorySystem.updatePreview(this.tanks[currentIndex], currentIndex);
+        const weapon = WeaponFactory.getWeapon(this.tanks[currentIndex].getWeapon() as WeaponType);
+        this.trajectorySystem.updatePreview(this.tanks[currentIndex], currentIndex, weapon);
         if (this.networkSync && this.gameMode === GameMode.Multiplayer) {
           this.networkSync.sendPower(newPower);
         }
@@ -419,6 +424,7 @@ export class GameScene extends Phaser.Scene {
     const weapon1Handler = () => this.switchWeapon(WeaponType.STANDARD);
     const weapon2Handler = () => this.switchWeapon(WeaponType.SALVO);
     const weapon3Handler = () => this.switchWeapon(WeaponType.HAZELNUT);
+    const weapon4Handler = () => this.switchWeapon(WeaponType.BOUNCING);
     
     this.input.keyboard?.on('keydown-LEFT', leftHandler);
     this.input.keyboard?.on('keydown-RIGHT', rightHandler);
@@ -428,6 +434,7 @@ export class GameScene extends Phaser.Scene {
     this.input.keyboard?.on('keydown-ONE', weapon1Handler);
     this.input.keyboard?.on('keydown-TWO', weapon2Handler);
     this.input.keyboard?.on('keydown-THREE', weapon3Handler);
+    this.input.keyboard?.on('keydown-FOUR', weapon4Handler);
     
     this.inputHandlers.push(
       { event: 'keydown-LEFT', callback: leftHandler },
@@ -437,7 +444,8 @@ export class GameScene extends Phaser.Scene {
       { event: 'keydown-SPACE', callback: spaceHandler },
       { event: 'keydown-ONE', callback: weapon1Handler },
       { event: 'keydown-TWO', callback: weapon2Handler },
-      { event: 'keydown-THREE', callback: weapon3Handler }
+      { event: 'keydown-THREE', callback: weapon3Handler },
+      { event: 'keydown-FOUR', callback: weapon4Handler }
     );
   }
 
@@ -465,7 +473,8 @@ export class GameScene extends Phaser.Scene {
       
       currentTank.setWeapon(weaponType);
       this.updateUI();
-      this.trajectorySystem.updatePreview(currentTank, currentIndex);
+      const weapon = WeaponFactory.getWeapon(weaponType);
+      this.trajectorySystem.updatePreview(currentTank, currentIndex, weapon);
     }
   }
 
@@ -497,36 +506,12 @@ export class GameScene extends Phaser.Scene {
     // Consume ammunition after successful fire
     currentTank.consumeAmmo();
     
-    // Check if weapon is salvo type
-    const weaponConfig = getWeaponConfig(weaponType as WeaponType);
+    // Get weapon instance and create fire plan
+    const weapon = WeaponFactory.getWeapon(weaponType as WeaponType);
+    const firePlan = weapon.createFirePlan(fireData, ownerId);
     
-    if (weaponConfig.salvoCount && weaponConfig.salvoCount > 1) {
-      // Fire salvo
-      this.fireSalvo(fireData, ownerId, weaponConfig);
-    } else {
-      // Fire single projectile
-      const projectile = new Projectile(this, {
-        x: fireData.x,
-        y: fireData.y,
-        angle: fireData.angle,
-        power: fireData.power,
-        ownerId: ownerId,
-        environmentEffects: this.environmentEffects,
-        weaponType: weaponType,
-      });
-
-      this.lastShotData.set(projectile.getOwnerId(), {
-        angle: fireData.angle,
-        power: fireData.power,
-        ownerId: ownerId,
-      });
-
-      this.trajectorySystem.initializeTrajectory(projectile);
-      this.activeProjectiles.push(projectile);
-      this.trajectorySystem.clearPreview();
-
-      this.audioSystem.playFire();
-    }
+    // Execute fire plan
+    this.executeFirePlan(firePlan, ownerId);
   }
 
   /**
@@ -538,14 +523,11 @@ export class GameScene extends Phaser.Scene {
     
     this.activeProjectiles.forEach((projectile) => {
       const weaponType = projectile.getWeaponType();
-      if (weaponType === WeaponType.HAZELNUT && !projectile.hasAlreadySplit()) {
-        // Check if projectile has reached the peak and started falling
-        // Split when: velocityY > 0 (falling) AND traveled minimum distance
-        const velocity = projectile.getVelocity();
-        const distanceTraveled = projectile.getDistanceTraveled();
-        const minDistance = 100; // Minimum distance before split (prevents immediate split)
+      if (!projectile.hasAlreadySplit()) {
+        const weapon = WeaponFactory.getWeapon(weaponType as WeaponType);
         
-        if (velocity.y > 0 && distanceTraveled > minDistance) {
+        // Check if weapon supports splitting and if projectile should split
+        if (weapon.shouldSplit && weapon.shouldSplit(projectile)) {
           projectilesToSplit.push(projectile);
         }
       }
@@ -553,129 +535,96 @@ export class GameScene extends Phaser.Scene {
     
     // Split projectiles
     projectilesToSplit.forEach((projectile) => {
-      this.splitHazelnutProjectile(projectile);
+      const weaponType = projectile.getWeaponType();
+      const weapon = WeaponFactory.getWeapon(weaponType as WeaponType);
+      
+      if (weapon.createSplitPlan) {
+        const ownerId = projectile.getOwnerId();
+        const splitPlan = weapon.createSplitPlan(projectile, ownerId);
+        
+        // Mark original projectile as split and make it invisible
+        projectile.markAsSplit();
+        projectile.setVisible(false);
+        projectile.stopFlightSound();
+        
+        // Add current position to trajectory before saving (important!)
+        this.trajectorySystem.addTrajectoryPoint(projectile, { x: projectile.x, y: projectile.y });
+        
+        // Save trajectory of the original projectile before splitting
+        this.trajectorySystem.saveTrajectory(projectile, { x: projectile.x, y: projectile.y });
+        
+        // Create visual explosion in air at split point (no terrain destruction)
+        const explosionConfig = weapon.getExplosionConfig();
+        this.explosionSystem.createVisualExplosion(
+          projectile.x,
+          projectile.y,
+          explosionConfig.radius * 0.8, // Slightly smaller explosion for mid-air split
+          weaponType,
+          explosionConfig.color
+        );
+        
+        // Play explosion sound for split
+        this.audioSystem.playExplosion(weaponType);
+        
+        // Add delay before creating split projectiles to show explosion effect
+        const splitDelay = 150; // 150ms delay to show explosion
+        
+        this.time.delayedCall(splitDelay, () => {
+          // Execute split plan after delay
+          this.executeFirePlan(splitPlan, ownerId);
+        });
+        
+        // Remove original projectile from active list immediately (before next update cycle)
+        const index = this.activeProjectiles.indexOf(projectile);
+        if (index !== -1) {
+          this.activeProjectiles.splice(index, 1);
+        }
+        
+        // Destroy visual after a short delay to allow visual effect
+        this.time.delayedCall(10, () => {
+          projectile.destroy();
+        });
+      }
     });
   }
   
   /**
-   * Split a hazelnut projectile into multiple projectiles
+   * Execute fire plan - creates projectiles according to weapon's fire plan
    */
-  private splitHazelnutProjectile(projectile: Projectile): void {
-    const weaponConfig = getWeaponConfig(WeaponType.HAZELNUT);
-    const splitCount = weaponConfig.splitCount || 6;
-    const splitSpread = weaponConfig.splitSpread || 15;
-    
-    // Get current projectile state
-    const currentX = projectile.x;
-    const currentY = projectile.y;
-    const ownerId = projectile.getOwnerId();
-    
-    // Get current speed (for maintaining similar drop speed)
-    const currentSpeed = projectile.getSpeed();
-    
-    // Hazelnut projectiles fall vertically down (90 degrees) with slight horizontal spread
-    const baseAngle = 90; // Vertical down in Phaser (0=right, 90=down, 180=left, 270=up)
-    
-    // Calculate horizontal angle spread (small deviation from vertical)
-    const startAngle = baseAngle - (splitSpread / 2);
-    const angleStep = splitSpread / (splitCount - 1);
-    
-    // Use moderate power for vertical drop (not too fast, not too slow)
-    // Slightly less power than current speed to simulate realistic separation
-    const speedMultiplier = 50; // Standard speed multiplier
-    const power = Math.max(30, (currentSpeed / speedMultiplier) * 70); // 70% of current speed, minimum 30
-    
-    // Mark original projectile as split and make it invisible
-    projectile.markAsSplit();
-    projectile.setVisible(false);
-    projectile.stopFlightSound();
-    
-    // Add current position to trajectory before saving (important!)
-    this.trajectorySystem.addTrajectoryPoint(projectile, { x: currentX, y: currentY });
-    
-    // Save trajectory of the original projectile before splitting
-    this.trajectorySystem.saveTrajectory(projectile, { x: currentX, y: currentY });
-    
-    // Create new projectiles
-    for (let i = 0; i < splitCount; i++) {
-      const angle = startAngle + (angleStep * i);
-      
-      const newProjectile = new Projectile(this, {
-        x: currentX,
-        y: currentY,
-        angle: angle,
-        power: power,
-        ownerId: ownerId,
-        environmentEffects: this.environmentEffects,
-        weaponType: WeaponType.STANDARD, // Split projectiles are standard type
-      });
-      
-      // Initialize trajectory for new projectile
-      this.trajectorySystem.initializeTrajectory(newProjectile);
-      this.activeProjectiles.push(newProjectile);
-    }
-    
-    // Remove original projectile from active list immediately (before next update cycle)
-    const index = this.activeProjectiles.indexOf(projectile);
-    if (index !== -1) {
-      this.activeProjectiles.splice(index, 1);
-    }
-    
-    // Destroy visual after a short delay to allow visual effect
-    this.time.delayedCall(10, () => {
-      projectile.destroy();
-    });
-  }
-
-  /**
-   * Fire a salvo of projectiles (multiple projectiles from one barrel)
-   */
-  private fireSalvo(
-    fireData: { x: number; y: number; angle: number; power: number; weaponType: string },
-    ownerId: string,
-    weaponConfig: { salvoCount?: number; salvoSpread?: number; salvoDelay?: number }
-  ): void {
-    const salvoCount = weaponConfig.salvoCount || 6;
-    const salvoSpread = weaponConfig.salvoSpread || 8;
-    const salvoDelay = weaponConfig.salvoDelay || 50;
-    
-    // Calculate angle spread
-    const startAngle = fireData.angle - (salvoSpread / 2);
-    const angleStep = salvoSpread / (salvoCount - 1);
-    
-    for (let i = 0; i < salvoCount; i++) {
-      const delay = i * salvoDelay;
-      const angle = startAngle + (angleStep * i);
-      
-      this.time.delayedCall(delay, () => {
+  private executeFirePlan(plan: IFirePlan, _ownerId: string): void {
+    plan.projectiles.forEach((projectilePlan, index) => {
+      const createProjectile = () => {
         const projectile = new Projectile(this, {
-          x: fireData.x,
-          y: fireData.y,
-          angle: angle,
-          power: fireData.power,
-          ownerId: ownerId,
+          ...projectilePlan.config,
           environmentEffects: this.environmentEffects,
-          weaponType: fireData.weaponType,
         });
 
-        if (i === 0) {
-          // Only track first projectile for shot data
-          this.lastShotData.set(projectile.getOwnerId(), {
-            angle: fireData.angle,
-            power: fireData.power,
-            ownerId: ownerId,
-          });
+        // Save shot data for first projectile only
+        if (index === 0 && plan.shotData) {
+          this.lastShotData.set(projectile.getOwnerId(), plan.shotData);
         }
 
         this.trajectorySystem.initializeTrajectory(projectile);
         this.activeProjectiles.push(projectile);
-        
-        if (i === 0) {
-          this.trajectorySystem.clearPreview();
-          this.audioSystem.playFire();
+
+        // Play sound and clear preview for first projectile only
+        if (index === 0) {
+          if (plan.clearPreview) {
+            this.trajectorySystem.clearPreview();
+          }
+          if (plan.playSound) {
+            this.audioSystem.playFire();
+          }
         }
-      });
-    }
+      };
+
+      // Handle delay if specified
+      if (projectilePlan.delay !== undefined && projectilePlan.delay > 0) {
+        this.time.delayedCall(projectilePlan.delay, createProjectile);
+      } else {
+        createProjectile();
+      }
+    });
   }
 
   private handleExplosion(data: { x: number; y: number; radius: number; damage: number; ownerId?: string }): void {
@@ -780,7 +729,8 @@ export class GameScene extends Phaser.Scene {
     // Update trajectory preview if can fire
     const currentIndex = this.turnSystem.getCurrentPlayerIndex();
     if (this.tanks[currentIndex]?.isAlive() && this.turnSystem.canFire()) {
-      this.trajectorySystem.updatePreview(this.tanks[currentIndex], currentIndex);
+      const weapon = WeaponFactory.getWeapon(this.tanks[currentIndex].getWeapon() as WeaponType);
+      this.trajectorySystem.updatePreview(this.tanks[currentIndex], currentIndex, weapon);
     }
 
     // Update projectile positions with manual physics (before collision detection)
@@ -804,33 +754,95 @@ export class GameScene extends Phaser.Scene {
       projectile.x = hitPoint.x;
       projectile.y = hitPoint.y;
 
-      if (hitType === 'tank' || hitType === 'terrain') {
+      if (hitType === 'tank') {
+        // Tank hit - always explode
         this.trajectorySystem.saveTrajectory(projectile, hitPoint);
         
-        // Get weapon config for explosion parameters
         const weaponType = projectile.getWeaponType() || WeaponType.STANDARD;
-        const weaponConfig = getWeaponConfig(weaponType as WeaponType);
+        const weapon = WeaponFactory.getWeapon(weaponType as WeaponType);
+        const explosionConfig = weapon.getExplosionConfig();
         
         this.explosionSystem.explode(
           hitPoint.x, 
           hitPoint.y, 
-          weaponConfig.explosionRadius, 
-          weaponConfig.explosionDamage, 
+          explosionConfig.radius, 
+          explosionConfig.damage, 
           projectile.getOwnerId(),
           weaponType,
-          weaponConfig.explosionColor
+          explosionConfig.color
         );
         
-        // Play explosion sound only once per frame (for salvo weapons)
         if (!explosionPlayed) {
           this.audioSystem.playExplosion(weaponType);
           explosionPlayed = true;
         }
+        
+        projectilesToRemove.push(projectile);
+      } else if (hitType === 'terrain') {
+        // Terrain hit - check if should bounce
+        const weaponType = projectile.getWeaponType() || WeaponType.STANDARD;
+        const weapon = WeaponFactory.getWeapon(weaponType as WeaponType);
+        
+        // Check if weapon supports bouncing and should bounce
+        if (weapon.shouldBounce && weapon.shouldBounce(projectile)) {
+          // Calculate surface normal and bounce
+          const surfaceNormalAngle = this.terrainSystem.getSurfaceNormalAngle(hitPoint.x, hitPoint.y);
+          
+          if (weapon.calculateBounceVelocity) {
+            const newVelocity = weapon.calculateBounceVelocity(projectile, surfaceNormalAngle);
+            projectile.setVelocity(newVelocity.velocityX, newVelocity.velocityY);
+            projectile.incrementBounceCount();
+            
+            // Move projectile away from surface to prevent immediate re-collision
+            // Move in direction of new velocity (away from surface)
+            const offsetDistance = 5; // Offset to get out of terrain
+            const newSpeed = Math.sqrt(newVelocity.velocityX ** 2 + newVelocity.velocityY ** 2);
+            if (newSpeed > 0) {
+              const offsetX = (newVelocity.velocityX / newSpeed) * offsetDistance;
+              const offsetY = (newVelocity.velocityY / newSpeed) * offsetDistance;
+              projectile.x = hitPoint.x + offsetX;
+              projectile.y = hitPoint.y + offsetY;
+            } else {
+              // Fallback: move upward if velocity is zero
+              projectile.y = hitPoint.y - offsetDistance;
+            }
+            
+            // Update last position to prevent immediate re-collision detection
+            projectile.updateLastPosition();
+            
+            // Add trajectory point at bounce location
+            this.trajectorySystem.addTrajectoryPoint(projectile, hitPoint);
+            
+            // Don't remove projectile - it will continue bouncing
+            // Play bounce sound effect (if available)
+          }
+        } else {
+          // Explode on terrain
+          this.trajectorySystem.saveTrajectory(projectile, hitPoint);
+          
+          const explosionConfig = weapon.getExplosionConfig();
+          
+          this.explosionSystem.explode(
+            hitPoint.x, 
+            hitPoint.y, 
+            explosionConfig.radius, 
+            explosionConfig.damage, 
+            projectile.getOwnerId(),
+            weaponType,
+            explosionConfig.color
+          );
+          
+          if (!explosionPlayed) {
+            this.audioSystem.playExplosion(weaponType);
+            explosionPlayed = true;
+          }
+          
+          projectilesToRemove.push(projectile);
+        }
       } else if (hitType === 'outOfBounds') {
         this.trajectorySystem.saveTrajectory(projectile, hitPoint);
+        projectilesToRemove.push(projectile);
       }
-      
-      projectilesToRemove.push(projectile);
     });
 
     // Remove destroyed projectiles

@@ -97,6 +97,38 @@ export class TerrainSystem {
   }
 
   /**
+   * Calculate surface normal angle at given position
+   * Returns angle in degrees (0-360) where 0 = right, 90 = down
+   * Normal points upward from surface (perpendicular to terrain slope)
+   * In Phaser: Y increases downward, so if terrain goes down (rightHeight > leftHeight),
+   * the surface slopes downward and normal points upward
+   */
+  public getSurfaceNormalAngle(x: number, _y: number): number {
+    const clampedX = Phaser.Math.Clamp(Math.floor(x), 1, this.width - 2);
+    
+    // Get heights at nearby points to calculate slope
+    // terrainHeight stores Y coordinates (larger = lower on screen in Phaser)
+    const leftHeight = this.terrainHeight[clampedX - 1];
+    const rightHeight = this.terrainHeight[clampedX + 1];
+    
+    // Calculate slope vector (dx, dy)
+    // In Phaser: Y increases downward, so if rightHeight > leftHeight, terrain slopes down-right
+    const dx = 2; // Distance between sample points
+    const dy = rightHeight - leftHeight; // Positive = terrain goes down (in Phaser Y direction)
+    
+    // Calculate surface angle (in degrees, Phaser convention: 0 = right, 90 = down)
+    // atan2(dy, dx) gives angle of surface direction
+    const surfaceAngle = Math.atan2(dy, dx) * (180 / Math.PI);
+    
+    // Normal is perpendicular to surface, pointing upward (away from terrain)
+    // In Phaser: if surface goes down-right (dy > 0), normal should point up-left
+    const normalAngle = surfaceAngle + 90;
+    
+    // Normalize to 0-360 range
+    return normalAngle < 0 ? normalAngle + 360 : normalAngle;
+  }
+
+  /**
    * Check if a point is solid terrain
    */
   public isSolid(x: number, y: number): boolean {

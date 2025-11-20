@@ -1,7 +1,7 @@
 import Phaser from 'phaser';
 import { type IProjectileConfig, type IEnvironmentEffects } from '@/types';
 import { calculateInitialVelocity } from '@/utils/physicsUtils';
-import { getWeaponConfig } from '@/config/weapons';
+import { WeaponFactory } from '@/entities/weapons';
 import { WeaponType } from '@/types/weapons';
 
 /**
@@ -27,6 +27,9 @@ export class Projectile extends Phaser.GameObjects.Sprite {
   private startX: number;
   private startY: number;
   private hasSplit: boolean = false;
+  
+  // Tracking for bouncing projectiles
+  private bounceCount: number = 0;
 
   constructor(scene: Phaser.Scene, config: IProjectileConfig) {
     // Create sprite without Matter.js physics
@@ -48,20 +51,22 @@ export class Projectile extends Phaser.GameObjects.Sprite {
       airDensity: 1.0,
     };
 
-    // Get weapon config
-    const weaponConfig = getWeaponConfig(this.weaponType as WeaponType);
+    // Get weapon instance
+    const weapon = WeaponFactory.getWeapon(this.weaponType as WeaponType);
+    const physicsConfig = weapon.getPhysicsConfig();
+    const visualConfig = weapon.getVisualConfig();
     
     // Calculate initial velocity with weapon speed multiplier
     const { velocityX, velocityY } = calculateInitialVelocity(
       config.angle, 
       config.power,
-      50 * weaponConfig.speedMultiplier
+      50 * physicsConfig.speedMultiplier
     );
     this.velocityX = velocityX;
     this.velocityY = velocityY;
 
     // Create visual representation with weapon color
-    this.createVisual(weaponConfig.color);
+    this.createVisual(visualConfig.color);
 
     // Play flight sound if AudioSystem is available
     this.startFlightSound();
@@ -118,12 +123,34 @@ export class Projectile extends Phaser.GameObjects.Sprite {
   public getSpeed(): number {
     return Math.sqrt(this.velocityX ** 2 + this.velocityY ** 2);
   }
-  
+
   /**
-   * Get current velocity components
+   * Get current velocity
    */
   public getVelocity(): { x: number; y: number } {
     return { x: this.velocityX, y: this.velocityY };
+  }
+
+  /**
+   * Set velocity (for bouncing)
+   */
+  public setVelocity(velocityX: number, velocityY: number): void {
+    this.velocityX = velocityX;
+    this.velocityY = velocityY;
+  }
+
+  /**
+   * Get bounce count
+   */
+  public getBounceCount(): number {
+    return this.bounceCount;
+  }
+
+  /**
+   * Increment bounce count
+   */
+  public incrementBounceCount(): void {
+    this.bounceCount++;
   }
   
   /**
