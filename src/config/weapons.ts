@@ -12,6 +12,7 @@ export const WEAPON_CONFIGS: Record<WeaponType, IWeaponConfig> = {
     airResistanceMultiplier: 1.0,
     explosionRadius: 35,        // Средний радиус
     explosionDamage: 50,
+    explosionShape: 'circle',   // Классический круглый кратер
     color: 0xffff00, // Yellow
   },
   
@@ -23,6 +24,7 @@ export const WEAPON_CONFIGS: Record<WeaponType, IWeaponConfig> = {
     airResistanceMultiplier: 1.0,
     explosionRadius: 22,        // Маленький радиус (компенсируется количеством)
     explosionDamage: 35,        // Меньше урона за снаряд
+    explosionShape: 'circle',   // Круглые кратеры
     salvoCount: 6,              // 6 ракет в залпе
     salvoSpread: 8,             // Разброс 8 градусов
     salvoDelay: 50,             // 50мс между выстрелами
@@ -38,6 +40,8 @@ export const WEAPON_CONFIGS: Record<WeaponType, IWeaponConfig> = {
     airResistanceMultiplier: 1.0,
     explosionRadius: 18,        // Маленький радиус - точечный удар
     explosionDamage: 40,        // Высокий урон в точке попадания
+    explosionShape: 'vertical', // Вертикальный овал - узкий глубокий кратер
+    explosionShapeRatio: 2.0,   // В 2 раза глубже чем шире
     splitCount: 6,              // 6 снарядов после разделения
     splitSpread: 15,            // Горизонтальный разброс в градусах (небольшой)
     // splitDistance не используется - разделение происходит динамически на пике траектории

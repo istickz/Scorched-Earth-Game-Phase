@@ -114,15 +114,39 @@ export class TerrainSystem {
   }
 
   /**
-   * Destroy terrain in a circular crater
+   * Destroy terrain in a crater with specified shape
    * OPTIMIZED: Only redraws affected columns instead of entire terrain
    */
-  public destroyCrater(centerX: number, centerY: number, radius: number): void {
-    const radiusSquared = radius * radius;
-    const minX = Math.max(0, Math.floor(centerX - radius));
-    const maxX = Math.min(this.width - 1, Math.ceil(centerX + radius));
-    const minY = Math.max(0, Math.floor(centerY - radius));
-    const maxY = Math.min(this.height - 1, Math.ceil(centerY + radius));
+  public destroyCrater(
+    centerX: number, 
+    centerY: number, 
+    radius: number,
+    shape: 'circle' | 'vertical' | 'horizontal' = 'circle',
+    shapeRatio: number = 1.0
+  ): void {
+    // Calculate radii for ellipse based on shape
+    let radiusX: number;
+    let radiusY: number;
+    
+    if (shape === 'vertical') {
+      // Vertical oval: narrow width, tall height
+      radiusX = radius;
+      radiusY = radius * shapeRatio;
+    } else if (shape === 'horizontal') {
+      // Horizontal oval: wide width, short height
+      radiusX = radius * shapeRatio;
+      radiusY = radius;
+    } else {
+      // Circle: equal radii
+      radiusX = radius;
+      radiusY = radius;
+    }
+
+    // Calculate bounds based on the actual shape
+    const minX = Math.max(0, Math.floor(centerX - radiusX));
+    const maxX = Math.min(this.width - 1, Math.ceil(centerX + radiusX));
+    const minY = Math.max(0, Math.floor(centerY - radiusY));
+    const maxY = Math.min(this.height - 1, Math.ceil(centerY + radiusY));
 
     // Track which columns were modified
     const modifiedColumns = new Set<number>();
@@ -132,9 +156,11 @@ export class TerrainSystem {
       for (let y = minY; y <= maxY; y++) {
         const dx = x - centerX;
         const dy = y - centerY;
-        const distSquared = dx * dx + dy * dy;
+        
+        // Check if point is inside ellipse using formula: (dx/radiusX)² + (dy/radiusY)² <= 1
+        const normalizedDistSquared = (dx * dx) / (radiusX * radiusX) + (dy * dy) / (radiusY * radiusY);
 
-        if (distSquared <= radiusSquared) {
+        if (normalizedDistSquared <= 1.0) {
           // Destroy terrain at this point
           if (this.terrainData[x][y]) {
             this.terrainData[x][y] = false;
@@ -181,6 +207,20 @@ export class TerrainSystem {
    */
   public getGraphics(): Phaser.GameObjects.Graphics {
     return this.terrainRenderer.getGraphics();
+  }
+
+  /**
+   * Get the terrain renderer
+   */
+  public getRenderer(): TerrainRenderer {
+    return this.terrainRenderer;
+  }
+
+  /**
+   * Get the terrain height array
+   */
+  public getTerrainHeightArray(): number[] {
+    return this.terrainHeight;
   }
 
   /**

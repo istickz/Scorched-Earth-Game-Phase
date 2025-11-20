@@ -12,19 +12,25 @@ export class WeatherSystem {
   private particleEmitter?: Phaser.GameObjects.Particles.ParticleEmitter;
   private environmentEffects?: IEnvironmentEffects;
   private terrainSystem: TerrainSystem;
+  private width?: number;
+  private height?: number;
 
   constructor(
     scene: Phaser.Scene, 
     weatherType: WeatherType, 
     timeOfDay: TimeOfDay = 'day',
     environmentEffects: IEnvironmentEffects | undefined,
-    terrainSystem: TerrainSystem
+    terrainSystem: TerrainSystem,
+    width?: number,
+    height?: number
   ) {
     this.scene = scene;
     this.weatherType = weatherType;
     this.timeOfDay = timeOfDay;
     this.environmentEffects = environmentEffects;
     this.terrainSystem = terrainSystem;
+    this.width = width;
+    this.height = height;
     
     if (weatherType !== 'none') {
       this.createWeatherParticles();
@@ -35,8 +41,8 @@ export class WeatherSystem {
    * Create weather particle effects
    */
   private createWeatherParticles(): void {
-    const width = this.scene.cameras.main.width;
-    const height = this.scene.cameras.main.height;
+    const width = this.width ?? this.scene.cameras.main.width;
+    const height = this.height ?? this.scene.cameras.main.height;
 
     // Create simple particle texture for snow if it doesn't exist
     if (!this.scene.textures.exists('weather-particle')) {
@@ -165,6 +171,13 @@ export class WeatherSystem {
       return this.lightenColor(skyColor, 0.1);
     }
     return skyColor;
+  }
+
+  /**
+   * Get the particle emitter (for adding to containers)
+   */
+  public getEmitter(): Phaser.GameObjects.Particles.ParticleEmitter | undefined {
+    return this.particleEmitter;
   }
 
   /**

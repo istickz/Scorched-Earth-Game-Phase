@@ -1,5 +1,7 @@
 import Phaser from 'phaser';
 import { TerrainSystem } from './TerrainSystem';
+import { getWeaponConfig } from '@/config/weapons';
+import { WeaponType } from '@/types/weapons';
 
 /**
  * Explosion system for visual effects and terrain destruction
@@ -38,6 +40,9 @@ export class ExplosionSystem {
     weaponType: string = 'standard',
     explosionColor?: number
   ): void {
+    // Get weapon config for crater shape
+    const weaponConfig = getWeaponConfig(weaponType as WeaponType);
+    
     // Create explosion particles FIRST (visual feedback - appears immediately)
     this.createExplosionParticles(x, y, radius, weaponType, explosionColor);
 
@@ -46,7 +51,13 @@ export class ExplosionSystem {
 
     // With optimized partial redraw, terrain destruction is now fast enough to do synchronously
     // This ensures terrain is destroyed in the same frame as damage is applied, improving synchronization
-      this.terrainSystem.destroyCrater(x, y, radius);
+    this.terrainSystem.destroyCrater(
+      x, 
+      y, 
+      radius,
+      weaponConfig.explosionShape || 'circle',
+      weaponConfig.explosionShapeRatio || 1.0
+    );
 
     // Screen shake disabled for better performance
   }

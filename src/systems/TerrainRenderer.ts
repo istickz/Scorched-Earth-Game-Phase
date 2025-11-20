@@ -113,6 +113,35 @@ export class TerrainRenderer {
   }
 
   /**
+   * Render snow layer on top of terrain (for winter biomes)
+   */
+  public renderSnowLayer(terrainHeight: number[]): void {
+    if (!this.terrainGraphics) return;
+    
+    // Snow layer thickness (offset from terrain surface)
+    const snowOffset = 3;
+    
+    // Draw snow layer with white color and slight transparency
+    this.terrainGraphics.fillStyle(0xffffff, 0.9);
+    this.terrainGraphics.beginPath();
+    
+    // Start from left edge at terrain surface minus snow offset
+    this.terrainGraphics.moveTo(0, terrainHeight[0] - snowOffset);
+    
+    // Draw line following terrain surface
+    for (let x = 0; x < this.width; x++) {
+      const y = terrainHeight[x] - snowOffset;
+      this.terrainGraphics.lineTo(x, y);
+    }
+    
+    // Complete the path to fill from snow surface down to bottom
+    this.terrainGraphics.lineTo(this.width, this.height);
+    this.terrainGraphics.lineTo(0, this.height);
+    this.terrainGraphics.closePath();
+    this.terrainGraphics.fillPath();
+  }
+
+  /**
    * Update ground color
    */
   public setGroundColor(color: number): void {
