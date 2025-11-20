@@ -186,6 +186,9 @@ export class GameScene extends Phaser.Scene {
       onFireRequested: () => {
         this.fireProjectile();
       },
+      onShieldRequested: (shieldType: string) => {
+        this.activateShield(shieldType);
+      },
       onUIUpdate: () => {
         this.updateUI();
       },
@@ -255,7 +258,8 @@ export class GameScene extends Phaser.Scene {
       currentTank,
       this.turnSystem.getCurrentPlayerIndex(),
       this.gameMode,
-      this.currentLevelIndex
+      this.currentLevelIndex,
+      this.tanks // Pass all tanks for displaying weapons on both sides
     );
   }
 
@@ -425,6 +429,8 @@ export class GameScene extends Phaser.Scene {
     const weapon2Handler = () => this.switchWeapon(WeaponType.SALVO);
     const weapon3Handler = () => this.switchWeapon(WeaponType.HAZELNUT);
     const weapon4Handler = () => this.switchWeapon(WeaponType.BOUNCING);
+    const weapon5Handler = () => this.switchWeapon(WeaponType.SHIELD_SINGLE_USE);
+    const weapon6Handler = () => this.switchWeapon(WeaponType.SHIELD_MULTI_USE);
     
     this.input.keyboard?.on('keydown-LEFT', leftHandler);
     this.input.keyboard?.on('keydown-RIGHT', rightHandler);
@@ -435,6 +441,8 @@ export class GameScene extends Phaser.Scene {
     this.input.keyboard?.on('keydown-TWO', weapon2Handler);
     this.input.keyboard?.on('keydown-THREE', weapon3Handler);
     this.input.keyboard?.on('keydown-FOUR', weapon4Handler);
+    this.input.keyboard?.on('keydown-FIVE', weapon5Handler);
+    this.input.keyboard?.on('keydown-SIX', weapon6Handler);
     
     this.inputHandlers.push(
       { event: 'keydown-LEFT', callback: leftHandler },
@@ -445,7 +453,9 @@ export class GameScene extends Phaser.Scene {
       { event: 'keydown-ONE', callback: weapon1Handler },
       { event: 'keydown-TWO', callback: weapon2Handler },
       { event: 'keydown-THREE', callback: weapon3Handler },
-      { event: 'keydown-FOUR', callback: weapon4Handler }
+      { event: 'keydown-FOUR', callback: weapon4Handler },
+      { event: 'keydown-FIVE', callback: weapon5Handler },
+      { event: 'keydown-SIX', callback: weapon6Handler }
     );
   }
 
@@ -473,8 +483,15 @@ export class GameScene extends Phaser.Scene {
       
       currentTank.setWeapon(weaponType);
       this.updateUI();
-      const weapon = WeaponFactory.getWeapon(weaponType);
-      this.trajectorySystem.updatePreview(currentTank, currentIndex, weapon);
+      
+      // Only update trajectory preview for actual weapons (not shields)
+      if (weaponType !== WeaponType.SHIELD_SINGLE_USE && weaponType !== WeaponType.SHIELD_MULTI_USE) {
+        const weapon = WeaponFactory.getWeapon(weaponType);
+        this.trajectorySystem.updatePreview(currentTank, currentIndex, weapon);
+      } else {
+        // Clear preview for shields
+        this.trajectorySystem.clearPreview();
+      }
     }
   }
 
@@ -496,6 +513,13 @@ export class GameScene extends Phaser.Scene {
       return;
     }
 
+    // Check if current "weapon" is actually a shield
+    if (currentWeapon === WeaponType.SHIELD_SINGLE_USE || currentWeapon === WeaponType.SHIELD_MULTI_USE) {
+      // Activate shield instead of firing
+      this.activateShield(currentWeapon);
+      return;
+    }
+
     this.turnSystem.setCanFire(false);
     this.turnSystem.setWaitingForProjectile(true);
 
@@ -512,6 +536,42 @@ export class GameScene extends Phaser.Scene {
     
     // Execute fire plan
     this.executeFirePlan(firePlan, ownerId);
+  }
+
+  /**
+   * Activate shield for current tank
+   */
+  private activateShield(shieldType: string): void {
+    const currentIndex = this.turnSystem.getCurrentPlayerIndex();
+    const currentTank = this.tanks[currentIndex];
+    
+    if (!currentTank || !currentTank.isAlive()) {
+      return;
+    }
+
+    // Activate shield
+    const success = currentTank.activateShield(shieldType);
+    
+    if (success) {
+      // Play activation sound
+      this.audioSystem.playFire();
+      
+      // Auto-switch to standard weapon after shield activation
+      // This prevents accidentally activating shield again on next turn
+      currentTank.setWeapon(WeaponType.STANDARD);
+      
+      // Switch turn after shield activation (similar to firing)
+      this.turnSystem.setCanFire(false);
+      this.turnSystem.setWaitingForProjectile(false);
+      
+      // Schedule turn switch
+      this.turnSystem.scheduleTurnSwitch(500);
+      
+      // Update UI
+      this.updateUI();
+    } else {
+      console.log('Failed to activate shield');
+    }
   }
 
   /**
@@ -663,10 +723,39 @@ export class GameScene extends Phaser.Scene {
         
         // Проверяем еще раз перед нанесением урона
         if (tank.isAlive()) {
-          tank.takeDamage(damage);
-          // Обновляем флаг после нанесения урона
-          if (!tank.isAlive()) {
-            tankPos.isAlive = false;
+          // Check if tank has active shield
+          const activeShield = tank.getActiveShield();
+          if (activeShield && activeShield.isActive()) {
+            // Check if explosion is within shield radius (full circle around tank)
+            const shieldConfig = activeShield.getShieldConfig();
+            const shieldRadius = shieldConfig.radius;
+            const distanceToTank = Phaser.Math.Distance.Between(data.x, data.y, tankPos.x, tankPos.y);
+            
+            if (distanceToTank <= shieldRadius) {
+              // Shield absorbs damage
+              const remainingDamage = activeShield.takeDamage(damage);
+              
+              // Apply remaining damage to tank (if shield was destroyed)
+              if (remainingDamage > 0) {
+                tank.takeDamage(remainingDamage);
+                if (!tank.isAlive()) {
+                  tankPos.isAlive = false;
+                }
+              }
+            } else {
+              // Explosion outside shield radius, damage goes directly to tank
+              tank.takeDamage(damage);
+              if (!tank.isAlive()) {
+                tankPos.isAlive = false;
+              }
+            }
+          } else {
+            // No active shield, damage goes directly to tank
+            tank.takeDamage(damage);
+            // Обновляем флаг после нанесения урона
+            if (!tank.isAlive()) {
+              tankPos.isAlive = false;
+            }
           }
         }
       }
@@ -754,7 +843,54 @@ export class GameScene extends Phaser.Scene {
       projectile.x = hitPoint.x;
       projectile.y = hitPoint.y;
 
-      if (hitType === 'tank') {
+      if (hitType === 'shield') {
+        // Shield hit - projectile stops at shield edge, damages shield
+        const hitTank = collision.hitTank;
+        if (!hitTank || !hitTank.isAlive()) {
+          projectilesToRemove.push(projectile);
+          return;
+        }
+
+        const activeShield = hitTank.getActiveShield();
+        if (!activeShield || !activeShield.isActive()) {
+          // Shield was deactivated, treat as tank hit
+          // Fall through to tank hit logic below
+        } else {
+          // Save trajectory
+          this.trajectorySystem.saveTrajectory(projectile, hitPoint);
+          
+          // Get weapon damage
+          const weaponType = projectile.getWeaponType() || WeaponType.STANDARD;
+          const weapon = WeaponFactory.getWeapon(weaponType as WeaponType);
+          const explosionConfig = weapon.getExplosionConfig();
+          
+          // Apply damage to shield
+          const remainingDamage = activeShield.takeDamage(explosionConfig.damage);
+          
+          // Create explosion at shield hit point (on shield edge)
+          this.explosionSystem.explode(
+            hitPoint.x, 
+            hitPoint.y, 
+            explosionConfig.radius, 
+            explosionConfig.damage, 
+            projectile.getOwnerId(),
+            weaponType,
+            explosionConfig.color
+          );
+          
+          // Apply remaining damage to tank if shield was destroyed
+          if (remainingDamage > 0) {
+            hitTank.takeDamage(remainingDamage);
+          }
+          
+          if (!explosionPlayed) {
+            this.audioSystem.playExplosion(weaponType);
+            explosionPlayed = true;
+          }
+          
+          projectilesToRemove.push(projectile);
+        }
+      } else if (hitType === 'tank') {
         // Tank hit - always explode
         this.trajectorySystem.saveTrajectory(projectile, hitPoint);
         

@@ -1,10 +1,12 @@
 import Phaser from 'phaser';
 import { GameMode } from '@/types';
-import { createTextWithShadow } from '@/utils/NESUI';
+import { createTextWithShadow, NESColors } from '@/utils/NESUI';
 import { Tank } from '@/entities/Tank';
 import { SINGLEPLAYER_LEVELS } from '@/config/levels';
 import { WeaponFactory } from '@/entities/weapons';
 import { WeaponType } from '@/types/weapons';
+import { ShieldFactory } from '@/entities/shields';
+import { ShieldType } from '@/types/shields';
 
 /**
  * UI System for game HUD (only for GameScene, not for menus)
@@ -13,8 +15,12 @@ export class UISystem {
   private scene: Phaser.Scene;
   private uiText!: Phaser.GameObjects.BitmapText;
   private uiTextShadow!: Phaser.GameObjects.BitmapText;
-  private weaponTexts: { text: Phaser.GameObjects.BitmapText; shadow: Phaser.GameObjects.BitmapText }[] = [];
+  private weaponTextsLeft: { text: Phaser.GameObjects.BitmapText; shadow: Phaser.GameObjects.BitmapText }[] = [];
+  private weaponTextsRight: { text: Phaser.GameObjects.BitmapText; shadow: Phaser.GameObjects.BitmapText }[] = [];
   private uiContainer!: Phaser.GameObjects.Container;
+  private infoPanel!: Phaser.GameObjects.Container;
+  private weaponsPanelLeft!: Phaser.GameObjects.Container;
+  private weaponsPanelRight!: Phaser.GameObjects.Container;
 
   constructor(scene: Phaser.Scene) {
     this.scene = scene;
@@ -27,52 +33,86 @@ export class UISystem {
     // Create UI container for HUD elements
     this.uiContainer = this.scene.add.container(0, 0);
     
-    // UI text with shadow (bitmap font)
+    const screenWidth = this.scene.cameras.main.width;
+    
+    // Create info panel at the top (game mode, player, angle, power)
+    this.infoPanel = this.scene.add.container(screenWidth / 2, 20);
+    
+    this.uiContainer.add(this.infoPanel);
+    
+    // UI text with shadow (bitmap font) - inside info panel
     const { shadow: uiTextShadow, text: uiText } = createTextWithShadow(
       this.scene,
-      this.uiContainer,
-      20,
-      20,
+      this.infoPanel,
+      0,
+      0,
       '',
       18,
-      0xffffff,
-      0,
+      NESColors.white,
+      0.5,
       0
     );
     this.uiTextShadow = uiTextShadow;
     this.uiText = uiText;
 
-    // Controls text with shadow (bitmap font)
-    const controlsTextStr = 'Controls: Arrows (Aim) | SPACE (Fire) | 1-3 (Weapon)';
+    // Controls text with shadow (bitmap font) - inside info panel
+    const controlsTextStr = 'Controls: Arrows (Aim) | SPACE (Fire/Shield) | 1-6 (Weapon/Shield)';
     createTextWithShadow(
       this.scene,
-      this.uiContainer,
-      20,
-      60,
+      this.infoPanel,
+      0,
+      25,
       controlsTextStr,
       14,
-      0xaaaaaa,
-      0,
+      NESColors.lightBlue,
+      0.5,
       0
     );
 
-    // Create weapon display elements
-    const weaponYStart = 90;
+    // Create weapon panels
+    const weaponYStart = 80;
     const weaponSpacing = 30;
     
-    for (let i = 0; i < 4; i++) {
+    // Left side weapons panel (player)
+    this.weaponsPanelLeft = this.scene.add.container(20, weaponYStart);
+    
+    this.uiContainer.add(this.weaponsPanelLeft);
+    
+    // Left side weapons (player) - relative to panel
+    for (let i = 0; i < 6; i++) {
       const weaponUI = createTextWithShadow(
         this.scene,
-        this.uiContainer,
-        20,
-        weaponYStart + (i * weaponSpacing),
+        this.weaponsPanelLeft,
+        0,
+        i * weaponSpacing,
         '',
-        16,
-        0xaaaaaa,
+        14,
+        NESColors.white,
         0,
         0
       );
-      this.weaponTexts.push(weaponUI);
+      this.weaponTextsLeft.push(weaponUI);
+    }
+    
+    // Right side weapons panel (bot/player 2)
+    this.weaponsPanelRight = this.scene.add.container(screenWidth - 20, weaponYStart);
+    
+    this.uiContainer.add(this.weaponsPanelRight);
+    
+    // Right side weapons (bot/player 2) - relative to panel
+    for (let i = 0; i < 6; i++) {
+      const weaponUI = createTextWithShadow(
+        this.scene,
+        this.weaponsPanelRight,
+        0,
+        i * weaponSpacing,
+        '',
+        14,
+        NESColors.white,
+        1,
+        0
+      );
+      this.weaponTextsRight.push(weaponUI);
     }
   }
 
@@ -83,7 +123,8 @@ export class UISystem {
     currentTank: Tank | undefined,
     currentPlayerIndex: number,
     gameMode: GameMode,
-    currentLevelIndex: number
+    currentLevelIndex: number,
+    allTanks?: Tank[]
   ): void {
     if (!currentTank || !currentTank.isAlive()) {
       return;
@@ -113,28 +154,73 @@ export class UISystem {
     this.uiText.setText(uiTextStr);
     this.uiTextShadow.setText(uiTextStr);
 
-    // Update weapons list
-    this.updateWeaponsList(currentTank);
+    // Update weapons list for all tanks
+    if (allTanks && allTanks.length >= 2) {
+      // Left side: player (tank 0)
+      if (allTanks[0] && allTanks[0].isAlive()) {
+        this.updateWeaponsList(allTanks[0], this.weaponTextsLeft, false);
+      }
+      
+      // Right side: bot/player 2 (tank 1)
+      if (allTanks[1] && allTanks[1].isAlive()) {
+        this.updateWeaponsList(allTanks[1], this.weaponTextsRight, true);
+      }
+    } else {
+      // Fallback: only show current tank on left
+      this.updateWeaponsList(currentTank, this.weaponTextsLeft, false);
+    }
   }
 
   /**
    * Update weapons list with ammunition counts
    */
-  private updateWeaponsList(currentTank: Tank): void {
-    const weapons = ['standard', 'salvo', 'hazelnut', 'bouncing'];
+  private updateWeaponsList(
+    currentTank: Tank,
+    weaponTexts: { text: Phaser.GameObjects.BitmapText; shadow: Phaser.GameObjects.BitmapText }[],
+    isRightPanel: boolean = false
+  ): void {
+    const weapons = [
+      'standard', 
+      'salvo', 
+      'hazelnut', 
+      'bouncing',
+      'shield_single_use',
+      'shield_multi_use'
+    ];
     const currentWeapon = currentTank.getWeapon();
     
     weapons.forEach((weapon, index) => {
-      const weaponInstance = WeaponFactory.getWeapon(weapon as WeaponType);
-      const ammo = currentTank.getAmmo(weapon);
+      let name: string;
+      let ammo: number;
+      
+      // Get name and ammo based on type
+      if (weapon === 'shield_single_use' || weapon === 'shield_multi_use') {
+        // For shields, get name from ShieldFactory
+        const shield = ShieldFactory.getShield(weapon as ShieldType);
+        name = shield.getShieldConfig().name;
+        ammo = currentTank.getAmmo(weapon);
+      } else {
+        // For weapons, get from WeaponFactory
+        const weaponInstance = WeaponFactory.getWeapon(weapon as WeaponType);
+        name = weaponInstance.name;
+        ammo = currentTank.getAmmo(weapon);
+      }
+      
       const ammoText = ammo === -1 ? '∞' : `x${ammo}`;
       const isCurrent = weapon === currentWeapon;
       const hasAmmo = ammo === -1 || ammo > 0;
       
-      // Format text
-      let text = `[${index + 1}] ${weaponInstance.name}: ${ammoText}`;
-      if (isCurrent) {
-        text = `► ${text} ◄`;
+      // Check if shield is active
+      const activeShield = currentTank.getActiveShield();
+      const isShieldActive = activeShield && activeShield.isActive() && activeShield.getType() === weapon;
+      const shieldHP = isShieldActive ? ` (HP: ${activeShield.getCurrentHP()}/${activeShield.getMaxHP()})` : '';
+      
+      // Format text - for right panel, put number at the end
+      let text: string;
+      if (isRightPanel) {
+        text = `${name}: ${ammoText}${shieldHP} [${index + 1}]`;
+      } else {
+        text = `[${index + 1}] ${name}: ${ammoText}${shieldHP}`;
       }
       
       // Choose color based on state
@@ -142,16 +228,27 @@ export class UISystem {
       if (!hasAmmo) {
         color = 0x555555; // Dark gray - no ammo
       } else if (isCurrent) {
-        color = 0x00ff00; // Bright green - current weapon
+        color = 0x00ff00; // Bright green - current weapon/shield
+      } else if (isShieldActive) {
+        color = 0x00aaff; // Blue - active shield
       } else {
         color = 0xffffff; // White - available
       }
       
       // Update text
-      const weaponUI = this.weaponTexts[index];
+      const weaponUI = weaponTexts[index];
       weaponUI.text.setText(text);
       weaponUI.shadow.setText(text);
       weaponUI.text.setTintFill(color);
+      
+      // Make selected weapon/shield bolder by increasing font size slightly
+      if (isCurrent) {
+        weaponUI.text.setFontSize(15); // Slightly larger for bold effect
+        weaponUI.shadow.setFontSize(15);
+      } else {
+        weaponUI.text.setFontSize(14); // Normal size
+        weaponUI.shadow.setFontSize(14);
+      }
     });
   }
 

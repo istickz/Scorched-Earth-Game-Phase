@@ -1,5 +1,8 @@
 import Phaser from 'phaser';
 import { type ITankConfig } from '@/types';
+import { Shield } from './shields/Shield';
+import { ShieldFactory } from './shields/ShieldFactory';
+import { type ShieldType } from './shields';
 
 /**
  * Matter.js body type (not exported by Phaser types)
@@ -27,7 +30,12 @@ export class Tank extends Phaser.GameObjects.Container {
     ['salvo', 3],      // 3 salvos
     ['hazelnut', 3],   // 3 hazelnuts
     ['bouncing', 3],   // 3 bouncing shells
+    ['shield_single_use', 2],  // 2 single-use shields
+    ['shield_multi_use', 1],  // 1 multi-use shield
   ]);
+  
+  // Active shield
+  private activeShield: Shield | null = null;
   private isRightSideTank: boolean = false;
   private bodyWidth: number = 65; // Longer body to match oval turret
   private bodyHeight: number = 20;
@@ -477,6 +485,59 @@ export class Tank extends Phaser.GameObjects.Container {
   }
 
   /**
+   * Activate shield
+   */
+  public activateShield(shieldType: string): boolean {
+    // Check if we have ammo for this shield
+    if (!this.hasAmmo(shieldType)) {
+      return false;
+    }
+
+    // Deactivate previous shield if exists
+    if (this.activeShield) {
+      this.activeShield.deactivate();
+      this.activeShield = null;
+    }
+
+    // Create and activate new shield
+    const shield = ShieldFactory.getShield(shieldType as ShieldType);
+    shield.activate(this.scene, this.x, this.y);
+    this.activeShield = shield;
+
+    // Consume ammo
+    const currentAmmo = this.ammunition.get(shieldType);
+    if (currentAmmo !== undefined && currentAmmo > 0) {
+      this.ammunition.set(shieldType, currentAmmo - 1);
+    }
+
+    return true;
+  }
+
+  /**
+   * Check if tank has active shield
+   */
+  public hasActiveShield(): boolean {
+    return this.activeShield !== null && this.activeShield.isActive();
+  }
+
+  /**
+   * Get active shield
+   */
+  public getActiveShield(): Shield | null {
+    return this.activeShield;
+  }
+
+  /**
+   * Deactivate shield
+   */
+  public deactivateShield(): void {
+    if (this.activeShield) {
+      this.activeShield.deactivate();
+      this.activeShield = null;
+    }
+  }
+
+  /**
    * Fire a projectile
    */
   public fire(): { x: number; y: number; angle: number; power: number; weaponType: string } {
@@ -526,6 +587,15 @@ export class Tank extends Phaser.GameObjects.Container {
   }
 
   /**
+   * Update shield position (call when tank position changes)
+   */
+  public updateShieldPosition(): void {
+    if (this.activeShield && this.activeShield.isActive()) {
+      this.activeShield.updatePosition(this.x, this.y);
+    }
+  }
+
+  /**
    * Get current health
    */
   public getHealth(): number {
@@ -557,6 +627,9 @@ export class Tank extends Phaser.GameObjects.Container {
    * Check if there's ground under the tank and update physics state
    */
   public checkGroundSupport(terrainSystem: { isSolid: (x: number, y: number) => boolean }): void {
+    // Update shield position when tank moves
+    this.updateShieldPosition();
+    
     interface ContainerWithBody {
       body?: MatterBody & { isStatic?: boolean; velocity?: { x: number; y: number } };
     }
@@ -659,6 +732,15 @@ export class Tank extends Phaser.GameObjects.Container {
     }
     
     return null; // No ground found
+  }
+
+  /**
+   * Clean up resources
+   */
+  public destroy(): void {
+    // Deactivate shield before destroying
+    this.deactivateShield();
+    super.destroy();
   }
 }
 

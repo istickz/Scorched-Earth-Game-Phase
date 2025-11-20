@@ -9,7 +9,7 @@ import { TerrainSystem } from '@/systems/TerrainSystem';
 export interface ICollisionResult {
   projectile: Projectile;
   hitPoint: { x: number; y: number };
-  hitType: 'tank' | 'terrain' | 'outOfBounds';
+  hitType: 'tank' | 'terrain' | 'outOfBounds' | 'shield';
   hitTank?: Tank;
 }
 
@@ -51,8 +51,11 @@ export class ProjectileCollisionSystem {
       const distance = Math.sqrt(dx * dx + dy * dy);
       
       // Проверяем попадание по танкам ПЕРВЫМ (приоритет)
+      // Но сначала проверяем столкновение со щитом (если есть)
       let hitTank: Tank | null = null;
       let tankHitPoint: { x: number; y: number } | null = null;
+      let shieldHitPoint: { x: number; y: number } | null = null;
+      let shieldHitTank: Tank | null = null;
       
       for (const tank of this.tanks) {
         if (!tank.isAlive()) {
@@ -72,6 +75,23 @@ export class ProjectileCollisionSystem {
           const checkX = lastPos.x + dx * t;
           const checkY = lastPos.y + dy * t;
           
+          // First check if projectile hits shield (if active)
+          const activeShield = tank.getActiveShield();
+          if (activeShield && activeShield.isActive()) {
+            const shieldConfig = activeShield.getShieldConfig();
+            const shieldRadius = shieldConfig.radius;
+            const distToTankCenter = Phaser.Math.Distance.Between(checkX, checkY, tank.x, tank.y);
+            
+            // Check if projectile hits shield (full circle around tank)
+            if (distToTankCenter <= shieldRadius && distToTankCenter > this.TANK_HITBOX_RADIUS) {
+              // Projectile hit shield, not tank
+              shieldHitPoint = { x: checkX, y: checkY };
+              shieldHitTank = tank;
+              break;
+            }
+          }
+          
+          // Check if projectile hits tank directly (bypasses shield if hit from inside)
           const distToTank = Phaser.Math.Distance.Between(checkX, checkY, tank.x, tank.y);
           if (distToTank <= this.TANK_HITBOX_RADIUS) {
             hitTank = tank;
@@ -80,13 +100,26 @@ export class ProjectileCollisionSystem {
           }
         }
         
+        if (shieldHitPoint && shieldHitTank) {
+          // Shield hit takes priority - stop checking other tanks
+          break;
+        }
+        
         if (hitTank) {
           break;
         }
       }
       
-      if (tankHitPoint && hitTank) {
-        // Попадание в танк
+      if (shieldHitPoint && shieldHitTank) {
+        // Попадание в щит
+        collisions.push({
+          projectile,
+          hitPoint: shieldHitPoint,
+          hitType: 'shield',
+          hitTank: shieldHitTank,
+        });
+      } else if (tankHitPoint && hitTank) {
+        // Попадание в танк (мимо щита или щита нет)
         collisions.push({
           projectile,
           hitPoint: tankHitPoint,

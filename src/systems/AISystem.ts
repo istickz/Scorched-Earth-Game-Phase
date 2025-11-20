@@ -519,15 +519,30 @@ export class AISystem {
 
   /**
    * Get AI decision with delay (simulates thinking time)
+   * Returns either shield activation or firing decision
    */
   public async getAIDecision(
     aiTank: Tank,
     targetTank: Tank,
-    callback: (angle: number, power: number) => void
+    callback: (angle: number, power: number) => void,
+    shieldCallback?: (shieldType: string) => void
   ): Promise<void> {
     // Minimal thinking time - constant for all difficulties
     // Difficulty affects accuracy, not reaction speed
     const thinkTime = 50;
+
+    // Check if AI should activate shield instead of firing
+    const shouldUseShield = this.shouldActivateShield(aiTank, targetTank);
+    if (shouldUseShield && shieldCallback) {
+      // Decide which shield to use
+      const shieldType = this.chooseShield(aiTank);
+      if (shieldType) {
+        this.scene.time.delayedCall(thinkTime, () => {
+          shieldCallback(shieldType);
+        });
+        return;
+      }
+    }
 
     // Calculate shot in world firing coordinates
     const fireData = aiTank.fire();
@@ -579,5 +594,54 @@ export class AISystem {
     this.scene.time.delayedCall(thinkTime, () => {
       callback(turretAngle, shot.power);
     });
+  }
+
+  /**
+   * Decide if AI should activate shield
+   */
+  private shouldActivateShield(aiTank: Tank, targetTank: Tank): boolean {
+    // Check if AI has any shields available
+    const hasSingleUse = aiTank.hasAmmo('shield_single_use');
+    const hasMultiUse = aiTank.hasAmmo('shield_multi_use');
+    
+    if (!hasSingleUse && !hasMultiUse) {
+      return false; // No shields available
+    }
+
+    // Activate shield if AI has low HP (< 30%)
+    const tankConfig = aiTank.getConfig();
+    const maxHealth = tankConfig.maxHealth;
+    const healthPercent = aiTank.getHealth() / maxHealth;
+    if (healthPercent < 0.3) {
+      return true;
+    }
+
+    // Activate shield if target has active shield (defensive play)
+    if (targetTank.hasActiveShield()) {
+      // 30% chance to activate shield when opponent has shield
+      return Math.random() < 0.3;
+    }
+
+    return false;
+  }
+
+  /**
+   * Choose which shield to activate
+   */
+  private chooseShield(aiTank: Tank): string | null {
+    const hasSingleUse = aiTank.hasAmmo('shield_single_use');
+    const hasMultiUse = aiTank.hasAmmo('shield_multi_use');
+    
+    // Prefer multi-use shield if available (more versatile)
+    if (hasMultiUse) {
+      return 'shield_multi_use';
+    }
+    
+    // Fallback to single-use shield
+    if (hasSingleUse) {
+      return 'shield_single_use';
+    }
+    
+    return null;
   }
 }
