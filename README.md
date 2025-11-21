@@ -1,10 +1,10 @@
-# Scorched-Earth-Game-Phase
+# Scorched Earth Game Clont
 
 Artillery-style tank battle game built with Phaser 3 and TypeScript.
 
 ## 🎮 Play Online
 
-The game is deployed on GitHub Pages: [Play Now](https://istickz.github.io/Scorched-Earth-Game-Phase/)
+The game is deployed on GitHub Pages: [Play Now](https://istickz.github.io/Scorched-Earth-Game-Phaser/)
 
 ## 🚀 Local Development
 

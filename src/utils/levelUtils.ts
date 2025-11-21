@@ -1,7 +1,7 @@
 import { type ILevelConfig, TerrainBiome, TerrainShape } from '@/types';
 
 /**
- * Create random level configuration for solo and P2P modes
+ * Create random level configuration for solo and multiplayer modes
  */
 export function createRandomLevelConfig(): ILevelConfig {
   const biomes = [TerrainBiome.TEMPERATE, TerrainBiome.DESERT, TerrainBiome.ARCTIC, TerrainBiome.VOLCANIC];

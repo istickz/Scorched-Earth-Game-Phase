@@ -1,7 +1,7 @@
 import { type INetworkMessage, type ConnectionState } from '@/types';
 
 /**
- * WebRTC connection manager for P2P multiplayer
+ * WebRTC connection manager for multiplayer
  */
 export class WebRTCManager {
   private peerConnection: RTCPeerConnection | null = null;
@@ -38,7 +38,19 @@ export class WebRTCManager {
 
       // Handle connection state changes
       this.peerConnection.onconnectionstatechange = () => {
+        console.log('Peer connection state:', this.peerConnection?.connectionState);
+        console.log('ICE connection state:', this.peerConnection?.iceConnectionState);
+        console.log('ICE gathering state:', this.peerConnection?.iceGatheringState);
         this.updateConnectionState();
+      };
+
+      // Handle ICE gathering state changes
+      this.peerConnection.onicegatheringstatechange = () => {
+        const state = this.peerConnection?.iceGatheringState;
+        console.log('ICE gathering state changed:', state);
+        if (state === 'complete' && this.onIceGatheringCompleteCallback) {
+          this.onIceGatheringCompleteCallback();
+        }
       };
 
       // Handle errors
@@ -59,12 +71,27 @@ export class WebRTCManager {
   }
 
   private onIceCandidateCallback?: (candidate: RTCIceCandidate) => void;
+  private onIceGatheringCompleteCallback?: () => void;
 
   /**
    * Set callback for ICE candidates
    */
   public setOnIceCandidate(callback: (candidate: RTCIceCandidate) => void): void {
     this.onIceCandidateCallback = callback;
+  }
+
+  /**
+   * Set callback for ICE gathering completion
+   */
+  public setOnIceGatheringComplete(callback: () => void): void {
+    this.onIceGatheringCompleteCallback = callback;
+  }
+
+  /**
+   * Get current ICE gathering state
+   */
+  public getIceGatheringState(): RTCIceGatheringState {
+    return this.peerConnection?.iceGatheringState || 'new';
   }
 
   /**
@@ -121,14 +148,16 @@ export class WebRTCManager {
     }
 
     try {
-      // Set remote description
-      await this.peerConnection.setRemoteDescription(offer);
-
-      // Set up data channel handler (receiver side)
+      // Set up data channel handler (receiver side) BEFORE setting remote description
+      // This ensures we catch the data channel event when it's created
       this.peerConnection.ondatachannel = (event) => {
+        console.log('Data channel received from remote peer');
         this.dataChannel = event.channel;
         this.setupDataChannel();
       };
+
+      // Set remote description
+      await this.peerConnection.setRemoteDescription(offer);
 
       // Create answer with options for better compatibility
       const answer = await this.peerConnection.createAnswer({
@@ -175,8 +204,10 @@ export class WebRTCManager {
       return;
     }
 
+    console.log('Setting up data channel, current state:', this.dataChannel.readyState);
+
     this.dataChannel.onopen = () => {
-      console.log('Data channel opened');
+      console.log('Data channel opened!');
       this.updateConnectionState();
     };
 
@@ -233,6 +264,9 @@ export class WebRTCManager {
     }
 
     const state = this.peerConnection.connectionState;
+    const dataChannelState = this.dataChannel?.readyState;
+
+    console.log(`Updating connection state: peer=${state}, dataChannel=${dataChannelState}`);
 
     switch (state) {
       case 'new':
@@ -241,8 +275,10 @@ export class WebRTCManager {
         break;
       case 'connected':
         if (this.dataChannel && this.dataChannel.readyState === 'open') {
+          console.log('Connection fully established!');
           this.connectionState = 'connected';
         } else {
+          console.log('Peer connected but data channel not open yet');
           this.connectionState = 'connecting';
         }
         break;
@@ -292,6 +328,47 @@ export class WebRTCManager {
     if (this.onStateChangeCallback) {
       this.onStateChangeCallback(this.connectionState);
     }
+  }
+
+  /**
+   * Disconnect and cleanup WebRTC resources
+   * This stops ICE gathering and closes all connections
+   */
+  public disconnect(): void {
+    console.log('WebRTCManager: Disconnecting...');
+
+    // Close data channel first
+    if (this.dataChannel) {
+      console.log('Closing data channel...');
+      this.dataChannel.onopen = null;
+      this.dataChannel.onclose = null;
+      this.dataChannel.onerror = null;
+      this.dataChannel.onmessage = null;
+      this.dataChannel.close();
+      this.dataChannel = null;
+    }
+
+    // Close peer connection (this stops ICE gathering)
+    if (this.peerConnection) {
+      console.log('Closing peer connection...');
+      this.peerConnection.onicecandidate = null;
+      this.peerConnection.onconnectionstatechange = null;
+      this.peerConnection.onicegatheringstatechange = null;
+      this.peerConnection.oniceconnectionstatechange = null;
+      this.peerConnection.ondatachannel = null;
+      this.peerConnection.close();
+      this.peerConnection = null;
+    }
+
+    // Clear callbacks
+    this.onIceCandidateCallback = undefined;
+    this.onIceGatheringCompleteCallback = undefined;
+    this.onMessageCallback = undefined;
+    this.onStateChangeCallback = undefined;
+
+    // Update state
+    this.connectionState = 'disconnected';
+    console.log('WebRTCManager: Disconnected successfully');
   }
 }
 

@@ -1,29 +1,40 @@
 import Phaser from 'phaser';
+import { LobbyConnectionManager } from '@/network/LobbyConnectionManager';
 import { WebRTCManager } from '@/network/WebRTCManager';
-import { type ConnectionState } from '@/types';
+import { type ConnectionState, type ILevelConfig } from '@/types';
 import {
   createTextWithShadow,
   createNESButton,
+  createNESContainer,
+  createNESBackground,
+  createNESMenuButton,
+  createNESTextareaElement,
   NESColors,
 } from '@/utils/NESUI';
+import { AudioSystem } from '@/systems/AudioSystem';
+import { createRandomLevelConfig } from '@/utils/levelUtils';
+import { EnvironmentSystem } from '@/systems/EnvironmentSystem';
 
 /**
  * Multiplayer lobby scene for WebRTC connection setup
  */
 export class MultiplayerLobbyScene extends Phaser.Scene {
-  private webrtcManager!: WebRTCManager;
-  private isHost: boolean = false;
+  private lobbyConnectionManager!: LobbyConnectionManager;
   private statusText!: Phaser.GameObjects.BitmapText;
   private statusTextShadow!: Phaser.GameObjects.BitmapText;
-  private offerText!: Phaser.GameObjects.BitmapText;
-  private offerTextShadow!: Phaser.GameObjects.BitmapText;
-  private answerText!: Phaser.GameObjects.BitmapText;
-  private answerTextShadow!: Phaser.GameObjects.BitmapText;
-  private offerInput!: Phaser.GameObjects.DOMElement | Phaser.GameObjects.BitmapText;
-  private answerInput!: Phaser.GameObjects.DOMElement | { node: HTMLTextAreaElement; destroy: () => void };
-  private iceCandidates: RTCIceCandidateInit[] = [];
-  private remoteIceCandidates: RTCIceCandidateInit[] = [];
-  private uiContainer!: Phaser.GameObjects.Container;
+  private offerInput?: Phaser.GameObjects.DOMElement;
+  private answerInput?: Phaser.GameObjects.DOMElement;
+  private generatedAnswerInput?: Phaser.GameObjects.DOMElement;
+  private contentContainer!: Phaser.GameObjects.Container;
+  private audioSystem!: AudioSystem;
+  private offerShown: boolean = false;
+  private roleSelectionContainer?: Phaser.GameObjects.Container;
+  private offerContainer?: Phaser.GameObjects.Container;
+  private answerContainer?: Phaser.GameObjects.Container;
+  private generatedAnswerContainer?: Phaser.GameObjects.Container;
+  private loadingSpinner?: Phaser.GameObjects.Container;
+  private loadingOverlay?: HTMLDivElement;
+  private spinnerAnimationId?: number;
 
   constructor() {
     super({ key: 'MultiplayerLobbyScene' });
@@ -33,28 +44,42 @@ export class MultiplayerLobbyScene extends Phaser.Scene {
     const width = this.cameras.main.width;
     const height = this.cameras.main.height;
 
-    // Create root container for UI elements
-    this.uiContainer = this.add.container(0, 0);
+    // Initialize audio system
+    this.audioSystem = new AudioSystem();
 
-    // Title with shadow (bitmap font)
-    createTextWithShadow(
-      this,
-      this.uiContainer,
-      width / 2,
-      50,
-      'P2P Multiplayer Setup',
-      32,
-      NESColors.white,
-      0.5,
-      0.5
-    );
+    // Create NES-style background
+    createNESBackground(this, width, height);
 
-    // Status text with shadow (bitmap font)
+    // Create NES-style title
+    this.createNESTitle(width);
+
+    // Calculate container dimensions
+    const containerPadding = 60;
+    const MAX_CONTENT_WIDTH = 1200;
+    const contentWidth = Math.min(width * 0.90, MAX_CONTENT_WIDTH);
+    const titleBottomY = 100 + 55 + 20;
+    const containerTopY = titleBottomY + 40;
+    const containerHeight = 750; // Увеличили с 700 до 750
+    const containerX = width / 2;
+    const containerY = containerTopY + containerHeight / 2;
+
+    // Create content container with NES-style border
+    this.contentContainer = createNESContainer(this, containerX, containerY, contentWidth, containerHeight);
+    
+    // Store container properties
+    (this.contentContainer as any).width = contentWidth;
+    (this.contentContainer as any).height = containerHeight;
+
+    // RELATIVE coordinates from container center (0, 0)
+    const contentStartY = -containerHeight / 2 + containerPadding + 30;
+    const buttonsStartY = contentStartY + 60;
+
+    // Status text with shadow
     const { shadow: statusTextShadow, text: statusText } = createTextWithShadow(
       this,
-      this.uiContainer,
-      width / 2,
-      120,
+      this.contentContainer,
+      0,
+      contentStartY,
       'Choose your role:',
       20,
       NESColors.white,
@@ -64,27 +89,21 @@ export class MultiplayerLobbyScene extends Phaser.Scene {
     this.statusTextShadow = statusTextShadow;
     this.statusText = statusText;
 
-    // Create host/join buttons
-    this.createButton(this.uiContainer, width / 2, 180, 'Create Game (Host)', () => this.startAsHost());
-    this.createButton(this.uiContainer, width / 2, 250, 'Join Game (Client)', () => this.startAsClient());
+    // Create role selection container with buttons
+    this.roleSelectionContainer = this.add.container(0, 0);
+    this.contentContainer.add(this.roleSelectionContainer);
+    this.createButton(this.roleSelectionContainer, 0, buttonsStartY, 'Create Game (Host)', () => this.startAsHost());
+    this.createButton(this.roleSelectionContainer, 0, buttonsStartY + 70, 'Join Game (Client)', () => this.startAsClient());
 
-    // Instructions with shadow (bitmap font)
-    const instructionsStr = 'Copy and paste the SDP offer/answer between players';
-    createTextWithShadow(
-      this,
-      this.uiContainer,
-      width / 2,
-      height - 100,
-      instructionsStr,
-      16,
-      0xaaaaaa,
-      0.5,
-      0.5
-    );
+    // Create back button
+    const backButtonY = containerHeight / 2 - containerPadding - 25;
+    this.createBackButton(0, backButtonY);
 
-    // Initialize WebRTC manager
+    // Play menu music
+    this.audioSystem.playMenuMusic(this);
+
+    // Initialize lobby connection manager
     try {
-      // Check if WebRTC is supported
       if (typeof RTCPeerConnection === 'undefined') {
         const errorMsg = 'WebRTC is not supported in this browser. Please use a modern browser.';
         this.statusText.setText(errorMsg);
@@ -92,14 +111,39 @@ export class MultiplayerLobbyScene extends Phaser.Scene {
         return;
       }
 
-      this.webrtcManager = new WebRTCManager();
-      this.webrtcManager.setOnStateChange((state) => {
+      const webrtcManager = new WebRTCManager();
+      this.lobbyConnectionManager = new LobbyConnectionManager(webrtcManager);
+
+      // Subscribe to events
+      this.lobbyConnectionManager.on('offerCreated', (offerString: string) => {
+        this.offerShown = true;
+        this.showOfferInput(offerString);
+        const successMsg = 'Offer created! Share it with the other player.';
+        this.statusText.setText(successMsg);
+        this.statusTextShadow.setText(successMsg);
+        this.hideLoadingSpinner();
+      });
+
+      this.lobbyConnectionManager.on('answerCreated', (answerString: string) => {
+        this.showGeneratedAnswer(answerString);
+        const answerCreatedMsg = 'Answer created! Copy and share it with the host.';
+        this.statusText.setText(answerCreatedMsg);
+        this.statusTextShadow.setText(answerCreatedMsg);
+        this.hideLoadingSpinner();
+      });
+
+      this.lobbyConnectionManager.on('connectionStateChanged', (state: ConnectionState) => {
         this.updateStatus(state);
       });
 
-      // Set up ICE candidate handler
-      this.webrtcManager.setOnIceCandidate((candidate) => {
-        this.iceCandidates.push(candidate.toJSON());
+      this.lobbyConnectionManager.on('gameReady', (levelConfig?: ILevelConfig) => {
+        this.startGame(levelConfig);
+      });
+
+      this.lobbyConnectionManager.on('error', (error: string) => {
+        this.statusText.setText(error);
+        this.statusTextShadow.setText(error);
+        this.hideLoadingSpinner();
       });
     } catch (error) {
       console.error('Error initializing WebRTC:', error);
@@ -114,38 +158,33 @@ export class MultiplayerLobbyScene extends Phaser.Scene {
    * Start as host (creates offer)
    */
   private async startAsHost(): Promise<void> {
-    if (!this.webrtcManager) {
+    if (!this.lobbyConnectionManager) {
       const errorMsg = 'WebRTC not initialized. Please refresh the page.';
       this.statusText.setText(errorMsg);
       this.statusTextShadow.setText(errorMsg);
       return;
     }
 
-    this.isHost = true;
+    if (this.roleSelectionContainer) {
+      this.roleSelectionContainer.setVisible(false);
+    }
+
     const creatingMsg = 'Creating offer...';
     this.statusText.setText(creatingMsg);
     this.statusTextShadow.setText(creatingMsg);
 
+    // Show loading spinner
+    this.showLoadingSpinner();
+
     try {
-      // Check if WebRTC is supported
-      if (!window.RTCPeerConnection) {
-        throw new Error('WebRTC is not supported in this browser');
-      }
-
-      const offer = await this.webrtcManager.createOffer();
-      const offerString = JSON.stringify(offer);
-
-      // Display offer
-      this.showOfferInput(offerString);
-      const successMsg = 'Offer created! Share it with the other player.';
-      this.statusText.setText(successMsg);
-      this.statusTextShadow.setText(successMsg);
+      await this.lobbyConnectionManager.createOfferWithCandidates();
     } catch (error) {
       console.error('Error creating offer:', error);
       const errorMessage = error instanceof Error ? error.message : String(error);
       const errorMsg = `Error creating offer: ${errorMessage}. Please try again.`;
       this.statusText.setText(errorMsg);
       this.statusTextShadow.setText(errorMsg);
+      this.hideLoadingSpinner();
     }
   }
 
@@ -153,7 +192,10 @@ export class MultiplayerLobbyScene extends Phaser.Scene {
    * Start as client (waits for offer)
    */
   private startAsClient(): void {
-    this.isHost = false;
+    if (this.roleSelectionContainer) {
+      this.roleSelectionContainer.setVisible(false);
+    }
+
     this.showAnswerInput();
     const waitingMsg = 'Waiting for offer from host...';
     this.statusText.setText(waitingMsg);
@@ -164,67 +206,68 @@ export class MultiplayerLobbyScene extends Phaser.Scene {
    * Show offer input field
    */
   private showOfferInput(offerString: string): void {
-    const width = this.cameras.main.width;
+    const containerWidth = (this.contentContainer as any).width || 1200;
+    const containerHeight = (this.contentContainer as any).height || 750; // Обновили с 700 до 750
+    const containerPadding = 60;
+    const textareaHeight = 100;
+    
+    // ОТНОСИТЕЛЬНЫЕ координаты от центра контейнера (0, 0)
+    const contentStartY = -containerHeight / 2 + containerPadding + 30;
+    const buttonsStartY = contentStartY + 60;
+    
+    // Offer label и textarea
+    const offerLabelY = buttonsStartY + 70; // Увеличили с 60 до 70
+    const offerTextareaY = offerLabelY + 40; // Увеличили с 35 до 40
+    
+    // АБСОЛЮТНЫЕ координаты для DOM элемента
+    const containerAbsoluteX = this.contentContainer.x;
+    const containerAbsoluteY = this.contentContainer.y;
+    const offerTextareaCenterAbsoluteY = containerAbsoluteY + offerTextareaY;
 
-    // Remove existing inputs
+    // Очистка предыдущих элементов
+    if (this.offerContainer) {
+      this.offerContainer.destroy();
+    }
     if (this.offerInput) {
       this.offerInput.destroy();
-    }
-    if (this.offerText) {
-      this.offerText.destroy();
-    }
-    if (this.offerTextShadow) {
-      this.offerTextShadow.destroy();
+      this.offerInput = undefined;
     }
 
-    // Label with shadow (bitmap font)
-    const offerLabelStr = 'Your Offer (copy this):';
-    const { shadow: offerTextShadow, text: offerText } = createTextWithShadow(
+    // Create offer container
+    this.offerContainer = this.add.container(0, 0);
+    this.contentContainer.add(this.offerContainer);
+
+    // Label
+    createTextWithShadow(
       this,
-      this.uiContainer,
-      width / 2,
-      320,
-      offerLabelStr,
+      this.offerContainer,
+      0,
+      offerLabelY,
+      'Your Offer (copy this):',
       18,
       NESColors.white,
       0.5,
       0.5
     );
-    this.offerTextShadow = offerTextShadow;
-    this.offerText = offerText;
 
-    // Create textarea for offer
-    const offerElement = document.createElement('textarea');
-    offerElement.value = offerString;
-    offerElement.style.width = '600px';
-    offerElement.style.height = '100px';
-    offerElement.style.fontSize = '12px';
-    offerElement.style.padding = '8px';
-    offerElement.style.border = '1px solid #666';
-    offerElement.style.borderRadius = '4px';
-    offerElement.style.backgroundColor = '#2a2a2a';
-    offerElement.style.color = '#ffffff';
-    offerElement.style.fontFamily = 'monospace';
-    offerElement.readOnly = true;
+    // Create NES-style textarea
+    const offerElement = createNESTextareaElement({
+      width: containerWidth - containerPadding * 2,
+      height: textareaHeight,
+      defaultValue: offerString,
+      readOnly: true,
+    });
 
-    // Create DOM element (container is created automatically with dom: { createContainer: true })
+    // DOM element с АБСОЛЮТНЫМИ координатами
     try {
-      this.offerInput = this.add.dom(width / 2, 380, offerElement);
+      this.offerInput = this.add.dom(containerAbsoluteX, offerTextareaCenterAbsoluteY, offerElement);
     } catch (error) {
       console.error('Error creating DOM element:', error);
-      // Fallback: use bitmap text instead
-      const textShadow = this.add.bitmapText(width / 2 + 1, 381, 'pixel-font', offerString, 10);
-      textShadow.setTintFill(0x000000);
-      textShadow.setOrigin(0.5);
-      
-      const text = this.add.bitmapText(width / 2, 380, 'pixel-font', offerString, 10);
-      text.setTintFill(0xffffff);
-      text.setOrigin(0.5);
-      this.offerInput = text;
     }
 
     // Copy button
-    this.createButton(this.uiContainer, width / 2, 450, 'Copy Offer', () => {
+    const copyButtonY = offerTextareaY + textareaHeight / 2 + 45; // Увеличили с 40 до 45
+    this.createButton(this.offerContainer, 0, copyButtonY, 'Copy Offer', () => {
       offerElement.select();
       document.execCommand('copy');
       const copiedMsg = 'Offer copied to clipboard!';
@@ -232,7 +275,7 @@ export class MultiplayerLobbyScene extends Phaser.Scene {
       this.statusTextShadow.setText(copiedMsg);
     });
 
-    // Answer input (for host to paste answer)
+    // Answer input (for host to paste answer) - показываем НИЖЕ offer
     this.showAnswerInput();
   }
 
@@ -240,68 +283,83 @@ export class MultiplayerLobbyScene extends Phaser.Scene {
    * Show answer input field
    */
   private showAnswerInput(): void {
-    const width = this.cameras.main.width;
+    const containerWidth = (this.contentContainer as any).width || 1200;
+    const containerHeight = (this.contentContainer as any).height || 750; // Обновили с 700 до 750
+    const containerPadding = 60;
+    const textareaHeight = 100;
+    
+    // ОТНОСИТЕЛЬНЫЕ координаты от центра контейнера (0, 0)
+    const contentStartY = -containerHeight / 2 + containerPadding + 30;
+    const buttonsStartY = contentStartY + 60;
+    
+    // Расчет позиции answer поля
+    let answerLabelY: number;
+    if (this.offerShown) {
+      // Если offer показан, размещаем answer ниже
+      // Используем ТОЧНО ТЕ ЖЕ значения, что в showOfferInput
+      const offerLabelY = buttonsStartY + 70;
+      const offerTextareaY = offerLabelY + 40;
+      const copyButtonY = offerTextareaY + textareaHeight / 2 + 45;
+      // Размещаем answer label после кнопки с достаточным отступом
+      answerLabelY = copyButtonY + 60;
+    } else {
+      // Если offer не показан, размещаем на том же месте где был бы offer
+      answerLabelY = buttonsStartY + 60;
+    }
+    const answerTextareaY = answerLabelY + 35; // Уменьшили с 40 до 35
+    
+    // АБСОЛЮТНЫЕ координаты для DOM элемента
+    const containerAbsoluteX = this.contentContainer.x;
+    const containerAbsoluteY = this.contentContainer.y;
+    const answerTextareaCenterAbsoluteY = containerAbsoluteY + answerTextareaY;
 
-    // Remove existing answer input
+    // Очистка предыдущих элементов
+    if (this.answerContainer) {
+      this.answerContainer.destroy();
+    }
     if (this.answerInput) {
       this.answerInput.destroy();
+      this.answerInput = undefined;
     }
 
-    const labelText = this.isHost ? 'Paste Answer here:' : 'Paste Offer here:';
-    if (this.answerText) {
-      this.answerText.destroy();
-    }
-    if (this.answerTextShadow) {
-      this.answerTextShadow.destroy();
-    }
+    // Create answer container
+    this.answerContainer = this.add.container(0, 0);
+    this.contentContainer.add(this.answerContainer);
 
-    // Label with shadow (bitmap font)
-    const { shadow: answerTextShadow, text: answerText } = createTextWithShadow(
+    const isHost = this.lobbyConnectionManager?.getIsHost() ?? false;
+    const labelText = isHost ? 'Paste Answer here:' : 'Paste Offer here:';
+
+    // Label
+    createTextWithShadow(
       this,
-      this.uiContainer,
-      width / 2,
-      520,
+      this.answerContainer,
+      0,
+      answerLabelY,
       labelText,
       18,
       NESColors.white,
       0.5,
       0.5
     );
-    this.answerTextShadow = answerTextShadow;
-    this.answerText = answerText;
 
-    // Create textarea for answer/offer
-    const answerElement = document.createElement('textarea');
-    answerElement.style.width = '600px';
-    answerElement.style.height = '100px';
-    answerElement.style.fontSize = '12px';
-    answerElement.style.padding = '8px';
-    answerElement.style.border = '1px solid #666';
-    answerElement.style.borderRadius = '4px';
-    answerElement.style.backgroundColor = '#2a2a2a';
-    answerElement.style.color = '#ffffff';
-    answerElement.style.fontFamily = 'monospace';
-    answerElement.placeholder = 'Paste SDP here...';
+    // Create NES-style textarea
+    const answerElement = createNESTextareaElement({
+      width: containerWidth - containerPadding * 2,
+      height: textareaHeight,
+      placeholder: 'Paste SDP here...',
+    });
 
-    // Create DOM element (container is created automatically with dom: { createContainer: true })
+    // DOM element с АБСОЛЮТНЫМИ координатами
     try {
-      this.answerInput = this.add.dom(width / 2, 580, answerElement);
+      this.answerInput = this.add.dom(containerAbsoluteX, answerTextareaCenterAbsoluteY, answerElement);
     } catch (error) {
       console.error('Error creating DOM element:', error);
-      // Fallback: use native DOM
-      const container = document.createElement('div');
-      container.style.position = 'absolute';
-      container.style.left = `${width / 2 - 300}px`;
-      container.style.top = '580px';
-      container.style.width = '600px';
-      container.appendChild(answerElement);
-      document.body.appendChild(container);
-      this.answerInput = { node: answerElement, destroy: () => container.remove() };
     }
 
     // Submit button
-    const buttonText = this.isHost ? 'Submit Answer' : 'Submit Offer';
-    this.createButton(this.uiContainer, width / 2, 650, buttonText, () => {
+    const submitButtonY = answerTextareaY + textareaHeight / 2 + 45;
+    const buttonText = isHost ? 'Submit Answer' : 'Submit Offer';
+    this.createButton(this.answerContainer, 0, submitButtonY, buttonText, () => {
       const sdpString = answerElement.value.trim();
       if (sdpString) {
         this.handleSDPInput(sdpString);
@@ -313,43 +371,40 @@ export class MultiplayerLobbyScene extends Phaser.Scene {
    * Handle SDP input (offer or answer)
    */
   private async handleSDPInput(sdpString: string): Promise<void> {
+    if (!this.lobbyConnectionManager) {
+      const errorMsg = 'Connection manager not initialized';
+      this.statusText.setText(errorMsg);
+      this.statusTextShadow.setText(errorMsg);
+      return;
+    }
+
     try {
-      const sdp: RTCSessionDescriptionInit = JSON.parse(sdpString);
+      const isHost = this.lobbyConnectionManager.getIsHost();
 
-      if (this.isHost) {
-        // Host receives answer
-        await this.webrtcManager.setRemoteDescription(sdp);
+      if (isHost) {
+        // Host receives answer from client
+        await this.lobbyConnectionManager.handleAnswerFromClient(sdpString);
         this.statusText.setText('Answer received! Connecting...');
+        this.statusTextShadow.setText('Answer received! Connecting...');
       } else {
-        // Client receives offer - createAnswer will set remote description
-        const answer = await this.webrtcManager.createAnswer(sdp);
-        const answerString = JSON.stringify(answer);
+        // Client receives offer from host and creates answer
+        this.showLoadingSpinner();
+        const creatingAnswerMsg = 'Creating answer...';
+        this.statusText.setText(creatingAnswerMsg);
+        this.statusTextShadow.setText(creatingAnswerMsg);
 
-        // Show answer to copy
-        this.showAnswerInput();
-        if (this.answerInput && 'node' in this.answerInput && this.answerInput.node) {
-          const textarea = this.answerInput.node;
-          if (textarea instanceof HTMLTextAreaElement) {
-            textarea.value = answerString;
-          }
-        }
-        const answerCreatedMsg = 'Answer created! Share it with the host.';
-        this.statusText.setText(answerCreatedMsg);
-        this.statusTextShadow.setText(answerCreatedMsg);
+        await this.lobbyConnectionManager.handleOfferFromHost(sdpString);
+        // answerCreated event will be handled by event listener
       }
-
-      // Add any pending ICE candidates
-      for (const candidate of this.remoteIceCandidates) {
-        await this.webrtcManager.addIceCandidate(candidate);
-      }
-      this.remoteIceCandidates = [];
     } catch (error) {
       console.error('Error handling SDP:', error);
       const errorMsg = 'Invalid SDP. Please check and try again.';
       this.statusText.setText(errorMsg);
       this.statusTextShadow.setText(errorMsg);
+      this.hideLoadingSpinner();
     }
   }
+
 
   /**
    * Update status display
@@ -362,13 +417,10 @@ export class MultiplayerLobbyScene extends Phaser.Scene {
         break;
       case 'connected':
         statusMsg = 'Connected! Starting game...';
-        // Start game after short delay
-        this.time.delayedCall(1000, () => {
-        this.scene.start('GameScene', {
-          gameMode: 'multiplayer',
-          webrtcManager: this.webrtcManager,
-        });
-        });
+        if (this.lobbyConnectionManager.getIsHost()) {
+          // Host generates levelConfig and sends to client
+          this.generateAndSendLevelConfig();
+        }
         break;
       case 'disconnected':
         statusMsg = 'Disconnected';
@@ -384,6 +436,61 @@ export class MultiplayerLobbyScene extends Phaser.Scene {
   }
 
   /**
+   * Start the game (called when ready)
+   */
+  private startGame(levelConfig?: ILevelConfig): void {
+    if (!this.lobbyConnectionManager) {
+      console.error('Lobby connection manager not initialized');
+      return;
+    }
+
+    const isHost = this.lobbyConnectionManager.getIsHost();
+    const finalLevelConfig = levelConfig || this.lobbyConnectionManager.getLevelConfig();
+
+    console.log(`${isHost ? 'Host' : 'Client'}: Starting game...`);
+    this.scene.start('GameScene', {
+      gameMode: 'multiplayer',
+      webrtcManager: this.lobbyConnectionManager.getWebRTCManager(),
+      isHost,
+      levelConfig: finalLevelConfig,
+    });
+  }
+
+  /**
+   * Create NES-style title
+   */
+  private createNESTitle(width: number): void {
+    const titleY = 100;
+    const nesRed = 0xe74c3c;
+    
+    const titleContainer = this.add.container(0, 0);
+    
+    createTextWithShadow(
+      this,
+      titleContainer,
+      width / 2,
+      titleY,
+      'MULTIPLAYER SETUP',
+      32,
+      nesRed,
+      0.5,
+      0.5
+    );
+
+    createTextWithShadow(
+      this,
+      titleContainer,
+      width / 2,
+      titleY + 55,
+      'WebRTC Connection',
+      14,
+      NESColors.yellow,
+      0.5,
+      0.5
+    );
+  }
+
+  /**
    * Create a button
    */
   private createButton(
@@ -392,26 +499,331 @@ export class MultiplayerLobbyScene extends Phaser.Scene {
     y: number,
     text: string,
     callback: () => void
-  ): void {
-    createNESButton(
+  ): Phaser.GameObjects.Container {
+    const result = createNESButton(
       this,
       parent,
       {
-      x,
-      y,
-      width: 250,
-      height: 50,
-      text,
-      onClick: callback,
+        x,
+        y,
+        width: 350, // Увеличили с 300 до 350
+        height: 50,
+        text,
+        onClick: callback,
+      }
+    );
+    return result.container;
+  }
+
+  /**
+   * Create back button in menu style
+   */
+  private createBackButton(x: number, y: number): void {
+    createNESMenuButton(
+      this,
+      this.contentContainer,
+      {
+        x: x - 30,
+        y,
+        text: 'BACK',
+        active: false,
+        onClick: () => {
+          // КРИТИЧЕСКИ ВАЖНО: остановить все процессы перед сменой сцены
+          this.cleanupBeforeExit();
+
+          if (this.audioSystem) {
+            this.audioSystem.stopMenuMusic();
+          }
+          this.scene.start('MenuScene');
+        },
       }
     );
   }
 
+  /**
+   * Show generated answer (for client after submitting offer)
+   * Displays in a separate field below the offer input
+   */
+  private showGeneratedAnswer(answerString: string): void {
+    const containerWidth = (this.contentContainer as any).width || 1200;
+    const containerHeight = (this.contentContainer as any).height || 750; // Обновили
+    const containerPadding = 60;
+    const textareaHeight = 100;
+    
+    // ОТНОСИТЕЛЬНЫЕ координаты от центра контейнера (0, 0)
+    const contentStartY = -containerHeight / 2 + containerPadding + 30;
+    const buttonsStartY = contentStartY + 60;
+    
+    // Размещаем generated answer НИЖЕ offer input
+    const offerLabelY = buttonsStartY + 60;
+    const offerTextareaY = offerLabelY + 35;
+    const submitButtonY = offerTextareaY + textareaHeight / 2 + 30;
+    
+    // Generated answer идет после submit кнопки
+    const answerLabelY = submitButtonY + 75; // Увеличили с 70 до 75
+    const answerTextareaY = answerLabelY + 40; // Увеличили с 35 до 40
+    
+    // АБСОЛЮТНЫЕ координаты для DOM элемента
+    const containerAbsoluteX = this.contentContainer.x;
+    const containerAbsoluteY = this.contentContainer.y;
+    const answerTextareaCenterAbsoluteY = containerAbsoluteY + answerTextareaY;
+
+    // Удаляем предыдущий generated answer если был
+    if (this.generatedAnswerContainer) {
+      this.generatedAnswerContainer.destroy();
+    }
+    if (this.generatedAnswerInput) {
+      this.generatedAnswerInput.destroy();
+      this.generatedAnswerInput = undefined;
+    }
+
+    // Create generated answer container
+    this.generatedAnswerContainer = this.add.container(0, 0);
+    this.contentContainer.add(this.generatedAnswerContainer);
+
+    // Label
+    createTextWithShadow(
+      this,
+      this.generatedAnswerContainer,
+      0,
+      answerLabelY,
+      'Your Answer (copy this):',
+      18,
+      NESColors.yellow, // Желтый цвет для выделения
+      0.5,
+      0.5
+    );
+
+    // Create NES-style textarea (highlighted in yellow)
+    const answerElement = createNESTextareaElement({
+      width: containerWidth - containerPadding * 2,
+      height: textareaHeight,
+      defaultValue: answerString,
+      readOnly: true,
+      highlightColor: NESColors.yellow,
+    });
+
+    // DOM element
+    try {
+      this.generatedAnswerInput = this.add.dom(containerAbsoluteX, answerTextareaCenterAbsoluteY, answerElement);
+    } catch (error) {
+      console.error('Error creating DOM element:', error);
+    }
+
+    // Copy button
+    const copyButtonY = answerTextareaY + textareaHeight / 2 + 45; // Увеличили с 40 до 45
+    this.createButton(this.generatedAnswerContainer, 0, copyButtonY, 'Copy Answer', () => {
+      answerElement.select();
+      document.execCommand('copy');
+      const copiedMsg = 'Answer copied to clipboard!';
+      this.statusText.setText(copiedMsg);
+      this.statusTextShadow.setText(copiedMsg);
+    });
+  }
+
+  /**
+   * Show loading spinner
+   */
+  private showLoadingSpinner(): void {
+    // Удаляем предыдущий spinner если есть
+    this.hideLoadingSpinner();
+
+    // Получаем позицию canvas для правильного позиционирования
+    const canvas = this.game.canvas;
+    const canvasRect = canvas.getBoundingClientRect();
+    const width = this.cameras.main.width;
+    const height = this.cameras.main.height;
+    const centerX = canvasRect.left + width / 2;
+    const centerY = canvasRect.top + height / 2 - 150; // Поднимаем спиннер выше центра
+
+    // Создаем DOM overlay с спиннером, который будет поверх всех элементов (включая textarea)
+    this.loadingOverlay = document.createElement('div');
+    this.loadingOverlay.style.cssText = `
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      z-index: 10000;
+      pointer-events: none;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    `;
+
+    // Создаем SVG спиннер в NES-стиле
+    const spinnerSvg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    spinnerSvg.setAttribute('width', '60');
+    spinnerSvg.setAttribute('height', '60');
+    spinnerSvg.setAttribute('viewBox', '0 0 60 60');
+    spinnerSvg.style.cssText = `
+      position: absolute;
+      top: ${centerY - 30}px;
+      left: ${centerX - 30}px;
+      animation: nes-spinner-rotate 1s linear infinite;
+    `;
+
+    // Создаем 8 точек по кругу
+    const radius = 20;
+    const dotRadius = 3;
+    const center = 30;
+    
+    for (let i = 0; i < 8; i++) {
+      const angle = (i / 8) * Math.PI * 2 - Math.PI / 2; // Начинаем сверху
+      const x = center + Math.cos(angle) * radius;
+      const y = center + Math.sin(angle) * radius;
+      const opacity = 0.3 + (i * 0.1);
+      
+      const dot = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+      dot.setAttribute('cx', String(x));
+      dot.setAttribute('cy', String(y));
+      dot.setAttribute('r', String(dotRadius));
+      dot.setAttribute('fill', `#${NESColors.white.toString(16).padStart(6, '0')}`);
+      dot.setAttribute('opacity', String(opacity));
+      dot.style.cssText = `
+        animation: nes-spinner-pulse 0.5s ease-in-out infinite;
+        animation-delay: ${i * 0.05}s;
+      `;
+      spinnerSvg.appendChild(dot);
+    }
+
+    this.loadingOverlay.appendChild(spinnerSvg);
+
+    // Добавляем CSS анимации если их еще нет
+    if (!document.getElementById('nes-spinner-styles')) {
+      const style = document.createElement('style');
+      style.id = 'nes-spinner-styles';
+      style.textContent = `
+        @keyframes nes-spinner-rotate {
+          from { transform: rotate(0deg); }
+          to { transform: rotate(360deg); }
+        }
+        @keyframes nes-spinner-pulse {
+          0%, 100% { opacity: 0.3; }
+          50% { opacity: 1; }
+        }
+      `;
+      document.head.appendChild(style);
+    }
+
+    // Добавляем overlay в DOM
+    document.body.appendChild(this.loadingOverlay);
+  }
+
+  /**
+   * Generate level config and send to client
+   */
+  private generateAndSendLevelConfig(): void {
+    if (!this.lobbyConnectionManager) {
+      console.error('Lobby connection manager not initialized');
+      return;
+    }
+
+    // Generate random levelConfig with seed
+    const levelConfig = createRandomLevelConfig();
+    const seed = Math.random() * 1000000;
+    levelConfig.seed = seed;
+
+    // Generate deterministic wind variation based on seed
+    const defaultEffects = EnvironmentSystem.getEffects(
+      levelConfig.biome,
+      levelConfig.weather,
+      levelConfig.timeOfDay
+    );
+    const windVar = EnvironmentSystem.getWindVariationFromSeed(seed * 0.7);
+    levelConfig.environmentEffects = {
+      ...defaultEffects,
+      windX: defaultEffects.windX + windVar.windX,
+      windY: defaultEffects.windY + windVar.windY,
+    };
+
+    console.log('Host: Generated levelConfig with seed:', seed);
+
+    // Send to client via manager
+    this.lobbyConnectionManager.sendLevelConfig(levelConfig);
+  }
+
+  /**
+   * Hide loading spinner
+   */
+  private hideLoadingSpinner(): void {
+    // Удаляем DOM overlay
+    if (this.loadingOverlay) {
+      if (this.loadingOverlay.parentElement) {
+        this.loadingOverlay.parentElement.removeChild(this.loadingOverlay);
+      }
+      this.loadingOverlay = undefined;
+    }
+
+    // Останавливаем анимацию если была
+    if (this.spinnerAnimationId !== undefined) {
+      cancelAnimationFrame(this.spinnerAnimationId);
+      this.spinnerAnimationId = undefined;
+    }
+
+    // Удаляем Phaser spinner (если был создан)
+    if (this.loadingSpinner) {
+      this.tweens.killTweensOf(this.loadingSpinner);
+      this.loadingSpinner.list.forEach((child) => {
+        if (child instanceof Phaser.GameObjects.Graphics) {
+          this.tweens.killTweensOf(child);
+        }
+      });
+      this.loadingSpinner.destroy();
+      this.loadingSpinner = undefined;
+    }
+  }
+
+  /**
+   * Clean up all resources before exiting scene
+   */
+  private cleanupBeforeExit(): void {
+    console.log('Cleaning up MultiplayerLobbyScene before exit...');
+
+    // 1. Остановить спиннер и удалить DOM overlay
+    this.hideLoadingSpinner();
+
+    // 2. Очистить все DOM элементы (textarea)
+    if (this.offerInput) {
+      this.offerInput.destroy();
+      this.offerInput = undefined;
+    }
+    if (this.answerInput) {
+      this.answerInput.destroy();
+      this.answerInput = undefined;
+    }
+    if (this.generatedAnswerInput) {
+      this.generatedAnswerInput.destroy();
+      this.generatedAnswerInput = undefined;
+    }
+
+    // 3. КРИТИЧЕСКИ ВАЖНО: остановить WebRTC процессы и ICE gathering
+    if (this.lobbyConnectionManager) {
+      // Сначала получаем webrtcManager до cleanup
+      const webrtcManager = this.lobbyConnectionManager.getWebRTCManager();
+
+      // Очищаем lobby manager (таймеры и события)
+      this.lobbyConnectionManager.cleanup();
+
+      // Затем закрываем WebRTC соединение (останавливает ICE gathering)
+      if (webrtcManager) {
+        webrtcManager.disconnect();
+      }
+    }
+
+    // 4. Удалить стили спиннера из DOM
+    const spinnerStyles = document.getElementById('nes-spinner-styles');
+    if (spinnerStyles && spinnerStyles.parentElement) {
+      spinnerStyles.parentElement.removeChild(spinnerStyles);
+    }
+  }
+
   shutdown(): void {
-    // Clean up WebRTC connection if leaving scene
-    if (this.webrtcManager) {
-      // Don't close here - pass to GameScene
+    // Используем ту же логику очистки
+    this.cleanupBeforeExit();
+
+    if (this.audioSystem) {
+      this.audioSystem.stopMenuMusic();
     }
   }
 }
-

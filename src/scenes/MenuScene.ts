@@ -1,5 +1,5 @@
 import Phaser from 'phaser';
-import { type AIDifficulty } from '@/types';
+import { GameMode, type AIDifficulty } from '@/types';
 import {
   createNESContainer,
   createTextWithShadow,
@@ -63,9 +63,10 @@ export class MenuScene extends Phaser.Scene {
 
     // Define menu options
     this.menuOptions = [
-      { text: 'SINGLEPLAYER', callback: () => this.showDifficultyMenu() },
-      { text: 'LOCAL MULTIPLAYER', callback: () => this.startLocalMultiplayer() },
-      { text: 'P2P MULTIPLAYER', callback: () => this.startMultiplayer() },
+      { text: '1 PLAYER', callback: () => this.showDifficultyMenu() },
+      { text: '2 PLAYERS', callback: () => this.showLevelSelectForTwoPlayers() },
+      { text: 'LEVEL EDITOR', callback: () => this.startLocalMultiplayer() },
+      { text: 'MULTIPLAYER', callback: () => this.startMultiplayer() },
       { text: 'QUIT', callback: () => this.quitGame() },
     ];
 
@@ -235,7 +236,7 @@ export class MenuScene extends Phaser.Scene {
    * Create NES-style menu
    */
   private createNESMenu(x: number, y: number): void {
-    // Increased width to accommodate longer text like "LOCAL MULTIPLAYER" and "P2P MULTIPLAYER"
+    // Increased width to accommodate longer text like "MULTIPLAYER"
     const boxWidth = 550;
     const boxHeight = this.menuOptions.length * 50 + 40;
     const padding = 40; // Increased padding from edges for better visual spacing
@@ -553,14 +554,21 @@ export class MenuScene extends Phaser.Scene {
     });
   }
 
+  /**
+   * Show level selection screen for two players
+   */
+  private showLevelSelectForTwoPlayers(): void {
+    // Don't stop music - let LevelSelectScene continue playing it
+    this.scene.start('LevelSelectScene', {
+      gameMode: GameMode.Local,
+    });
+  }
 
   /**
    * Start multiplayer lobby
    */
   private startMultiplayer(): void {
-    // Stop menu music before going to multiplayer
-    this.audioSystem.stopMenuMusic();
-    
+    // Don't stop music - let MultiplayerLobbyScene continue playing it
     this.scene.start('MultiplayerLobbyScene');
   }
 

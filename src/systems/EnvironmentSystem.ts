@@ -78,6 +78,19 @@ export class EnvironmentSystem {
   }
 
   /**
+   * Get deterministic wind variation from seed (for multiplayer synchronization)
+   */
+  static getWindVariationFromSeed(seed: number): { windX: number; windY: number } {
+    // Простой псевдослучайный генератор на основе seed
+    const random1 = (seed * 9301 + 49297) % 233280;
+    const random2 = (seed * 9301 + 49297 + 1) % 233280;
+    return {
+      windX: ((random1 / 233280) - 0.5) * 0.5,
+      windY: ((random2 / 233280) - 0.5) * 0.2,
+    };
+  }
+
+  /**
    * Get descriptive text for current environment
    */
   static getEnvironmentDescription(effects: IEnvironmentEffects): string {

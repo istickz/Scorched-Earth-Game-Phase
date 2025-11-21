@@ -147,7 +147,7 @@ export interface IAIShotResult {
 /**
  * Network message types
  */
-export type NetworkMessageType = 'angle' | 'power' | 'fire' | 'ping' | 'pong';
+export type NetworkMessageType = 'angle' | 'power' | 'fire' | 'shield' | 'weaponChange' | 'ping' | 'pong' | 'levelConfig' | 'ready' | 'startGame';
 
 /**
  * Network message interface

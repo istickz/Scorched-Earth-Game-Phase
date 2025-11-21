@@ -920,6 +920,140 @@ export function createNESInput(
 }
 
 /**
+ * Create NES-style textarea element
+ * Returns a styled HTML textarea element that can be used with Phaser's add.dom()
+ * 
+ * @param config - Textarea configuration
+ * @returns Styled textarea element
+ */
+export interface INESTextareaConfig {
+  width: number;
+  height: number;
+  placeholder?: string;
+  defaultValue?: string;
+  readOnly?: boolean;
+  highlightColor?: number; // Optional highlight color (e.g., yellow for generated answer)
+}
+
+// Global flag to ensure scrollbar styles are added only once
+let nesScrollbarStylesAdded = false;
+
+/**
+ * Add NES-style scrollbar CSS to document if not already added
+ */
+function ensureNESScrollbarStyles(): void {
+  if (nesScrollbarStylesAdded) {
+    return;
+  }
+
+  const styleId = 'nes-textarea-scrollbar-styles';
+  if (document.getElementById(styleId)) {
+    nesScrollbarStylesAdded = true;
+    return;
+  }
+
+  const style = document.createElement('style');
+  style.id = styleId;
+  
+  // Convert colors to hex strings
+  const scrollbarTrackColor = `#${NESColors.darkGray.toString(16).padStart(6, '0')}`;
+  const scrollbarThumbColor = `#${NESColors.blue.toString(16).padStart(6, '0')}`;
+  const scrollbarThumbHoverColor = `#${NESColors.lightBlue.toString(16).padStart(6, '0')}`;
+  const scrollbarBorderColor = `#${NESColors.lightBlue.toString(16).padStart(6, '0')}`;
+
+  style.textContent = `
+    /* NES-style scrollbar for WebKit browsers (Chrome, Safari, Edge) */
+    .nes-textarea::-webkit-scrollbar {
+      width: 12px;
+    }
+    
+    .nes-textarea::-webkit-scrollbar-track {
+      background: ${scrollbarTrackColor};
+      border-radius: ${NESTheme.borderRadius}px;
+      border: ${NESTheme.innerBorderWidth}px solid ${scrollbarBorderColor}80;
+    }
+    
+    .nes-textarea::-webkit-scrollbar-thumb {
+      background: ${scrollbarThumbColor};
+      border-radius: ${NESTheme.borderRadius}px;
+      border: ${NESTheme.innerBorderWidth}px solid ${scrollbarBorderColor};
+    }
+    
+    .nes-textarea::-webkit-scrollbar-thumb:hover {
+      background: ${scrollbarThumbHoverColor};
+    }
+  `;
+
+  document.head.appendChild(style);
+  nesScrollbarStylesAdded = true;
+}
+
+export function createNESTextareaElement(config: INESTextareaConfig): HTMLTextAreaElement {
+  const {
+    width,
+    height,
+    placeholder = '',
+    defaultValue = '',
+    readOnly = false,
+    highlightColor,
+  } = config;
+
+  // Ensure scrollbar styles are added
+  ensureNESScrollbarStyles();
+
+  // Create HTML textarea element
+  const textareaElement = document.createElement('textarea');
+  textareaElement.value = defaultValue;
+  textareaElement.placeholder = placeholder;
+  textareaElement.readOnly = readOnly;
+  
+  // Add class for scrollbar styling
+  textareaElement.className = 'nes-textarea';
+
+  // Convert colors to hex strings
+  const borderColor = highlightColor 
+    ? `#${highlightColor.toString(16).padStart(6, '0')}` 
+    : `#${NESColors.blue.toString(16).padStart(6, '0')}`;
+  const textColor = highlightColor
+    ? `#${highlightColor.toString(16).padStart(6, '0')}`
+    : `#${NESColors.white.toString(16).padStart(6, '0')}`;
+  const backgroundColor = `#${NESColors.darkGray.toString(16).padStart(6, '0')}`;
+  const innerBorderColor = highlightColor
+    ? `#${NESColors.yellow.toString(16).padStart(6, '0')}`
+    : `#${NESColors.lightBlue.toString(16).padStart(6, '0')}`;
+  
+  // Scrollbar colors for Firefox
+  const scrollbarThumbColor = highlightColor
+    ? `#${NESColors.yellow.toString(16).padStart(6, '0')}`
+    : `#${NESColors.blue.toString(16).padStart(6, '0')}`;
+  const scrollbarTrackColor = `#${NESColors.darkGray.toString(16).padStart(6, '0')}`;
+
+  // NES-style CSS matching the theme
+  textareaElement.style.cssText = `
+    width: ${width}px;
+    height: ${height}px;
+    padding: 8px;
+    font-size: 12px;
+    font-family: 'Courier New', monospace;
+    background-color: ${backgroundColor};
+    color: ${textColor};
+    border: ${NESTheme.borderWidth}px solid ${borderColor};
+    border-radius: ${NESTheme.borderRadius}px;
+    outline: none;
+    box-sizing: border-box;
+    resize: none;
+    box-shadow: 
+      inset 0 0 0 ${NESTheme.innerBorderWidth}px ${innerBorderColor}80,
+      0 0 0 1px rgba(0, 0, 0, 0.3);
+    /* Firefox scrollbar styling */
+    scrollbar-width: thin;
+    scrollbar-color: ${scrollbarThumbColor} ${scrollbarTrackColor};
+  `;
+
+  return textareaElement;
+}
+
+/**
  * Create NES-style background
  * @param scene - Phaser scene
  * @param width - Background width

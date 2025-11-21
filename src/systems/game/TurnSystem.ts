@@ -135,8 +135,8 @@ export class TurnSystem {
       this.onTurnChanged(this.currentPlayerIndex);
     }
 
-    // Show player indicator for local multiplayer
-    if (this.gameMode === GameMode.Local) {
+    // Show player indicator for local multiplayer and solo mode
+    if (this.gameMode === GameMode.Local || this.gameMode === GameMode.Solo) {
       this.showPlayerTurnIndicator();
     }
 
@@ -146,13 +146,19 @@ export class TurnSystem {
   }
 
   /**
-   * Show turn indicator for local multiplayer
+   * Show turn indicator for local multiplayer and solo mode
    */
   private showPlayerTurnIndicator(): void {
     const width = this.scene.cameras.main.width;
     const height = this.scene.cameras.main.height;
 
-    const playerName = `PLAYER ${this.currentPlayerIndex + 1}`;
+    // For solo mode, show "AI'S TURN" for AI (index 1), otherwise show player number
+    let playerName: string;
+    if (this.gameMode === GameMode.Solo && this.currentPlayerIndex === 1) {
+      playerName = 'AI';
+    } else {
+      playerName = `PLAYER ${this.currentPlayerIndex + 1}`;
+    }
     const turnTextStr = `${playerName}'S TURN`;
     
     // Turn text with shadow (bitmap font)

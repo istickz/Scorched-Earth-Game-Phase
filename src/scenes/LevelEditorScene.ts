@@ -205,7 +205,7 @@ export class LevelEditorScene extends Phaser.Scene {
       titleContainer,
       width / 2,
       titleY + 55,
-      'Local Multiplayer - Configure Battle',
+      'Level Editor - Configure Battle',
       14,
       NESColors.yellow,
       0.5,

@@ -12,7 +12,6 @@ import { AudioSystem } from '@/systems/AudioSystem';
 import { BiomeSystem } from '@/systems/BiomeSystem';
 import { WeatherSystem } from '@/systems/WeatherSystem';
 import { EnvironmentSystem } from '@/systems/EnvironmentSystem';
-import { SINGLEPLAYER_LEVELS } from '@/config/levels';
 import { createRandomLevelConfig } from '@/utils/levelUtils';
 import { UISystem } from '@/systems/game/UISystem';
 import { TurnSystem } from '@/systems/game/TurnSystem';
@@ -59,16 +58,20 @@ export class GameScene extends Phaser.Scene {
   private levelConfig?: ILevelConfig;
   private currentLevelIndex: number = 0;
 
+  private isHost: boolean = false;
+
   init(data: { 
     gameMode?: GameMode; 
     webrtcManager?: WebRTCManager; 
     aiDifficulty?: AIDifficulty;
     levelConfig?: ILevelConfig;
     levelIndex?: number;
+    isHost?: boolean;
   }): void {
     this.gameMode = data?.gameMode || GameMode.Solo;
     this.webrtcManager = data?.webrtcManager;
     this.aiDifficulty = data?.aiDifficulty || 'medium';
+    this.isHost = data?.isHost ?? false;
     
     // Сохраняем конфигурацию уровня для использования в create()
     this.levelConfig = data?.levelConfig;
@@ -90,17 +93,13 @@ export class GameScene extends Phaser.Scene {
     // Matter.js is now only used for tanks, not for projectiles
     // Projectiles use manual physics simulation with EnvironmentSystem
 
-    // Use provided config, predefined level for singleplayer, or create random one
+    // Use provided config, or create random one if not provided
     let levelConfig: ILevelConfig;
     if (this.levelConfig) {
-      // Explicitly provided config (from LevelEditorScene for local multiplayer)
+      // Explicitly provided config (from LevelEditorScene or LevelSelectScene)
       levelConfig = this.levelConfig;
-    } else if (this.gameMode === GameMode.Solo) {
-      // Singleplayer mode: use predefined levels
-      const levelIndex = Math.min(this.currentLevelIndex, SINGLEPLAYER_LEVELS.length - 1);
-      levelConfig = SINGLEPLAYER_LEVELS[levelIndex];
     } else {
-      // Multiplayer or other modes: use random generation
+      // Fallback: use random generation (should not happen in normal flow)
       levelConfig = createRandomLevelConfig();
     }
     
@@ -120,10 +119,14 @@ export class GameScene extends Phaser.Scene {
       ? { ...defaultEffects, ...levelConfig.environmentEffects }
       : { ...defaultEffects };
 
+    // В мультиплеере wind variation уже включен в levelConfig.environmentEffects
+    // В других режимах добавляем случайный ветер
+    if (this.gameMode !== GameMode.Multiplayer) {
     // Add random wind variation for each game
     const windVar = EnvironmentSystem.getWindVariation();
     this.environmentEffects.windX += windVar.windX;
     this.environmentEffects.windY += windVar.windY;
+    }
 
     // Log level configuration
     console.log('🎨 Level Configuration:', JSON.stringify(levelConfig, null, 2));
@@ -221,6 +224,9 @@ export class GameScene extends Phaser.Scene {
     const tank1Y = this.terrainSystem.getHeightAt(tank1X);
     const tank2Y = this.terrainSystem.getHeightAt(tank2X);
 
+    // В мультиплеере: host всегда слева (tank 0), client справа (tank 1)
+    // Размещение танков одинаковое для всех, но управление зависит от isHost
+
     const tank1Config: ITankConfig = {
       x: tank1X,
       y: tank1Y,
@@ -268,24 +274,76 @@ export class GameScene extends Phaser.Scene {
       return;
     }
 
+    // Определяем индекс удаленного игрока (противоположный локальному)
+    const remotePlayerIndex = this.isHost ? 1 : 0;
+
     this.networkSync.setCallbacks({
       onAngleChange: (angle: number) => {
-        if (this.tanks[1] && this.turnSystem.getCurrentPlayerIndex() === 1) {
-          this.tanks[1].setTurretAngle(angle);
+        // Обрабатываем сообщения только когда ход удаленного игрока
+        if (this.tanks[remotePlayerIndex] && this.turnSystem.getCurrentPlayerIndex() === remotePlayerIndex) {
+          this.tanks[remotePlayerIndex].setTurretAngle(angle);
           this.updateUI();
         }
       },
       onPowerChange: (power: number) => {
-        if (this.tanks[1] && this.turnSystem.getCurrentPlayerIndex() === 1) {
-          this.tanks[1].setPower(power);
+        // Обрабатываем сообщения только когда ход удаленного игрока
+        if (this.tanks[remotePlayerIndex] && this.turnSystem.getCurrentPlayerIndex() === remotePlayerIndex) {
+          this.tanks[remotePlayerIndex].setPower(power);
           this.updateUI();
         }
       },
-      onFire: (angle: number, power: number) => {
-        if (this.tanks[1] && this.turnSystem.getCurrentPlayerIndex() === 1) {
-          this.tanks[1].setTurretAngle(angle);
-          this.tanks[1].setPower(power);
+      onFire: (angle: number, power: number, weaponType: string) => {
+        // Обрабатываем сообщения только когда ход удаленного игрока
+        if (this.tanks[remotePlayerIndex] && this.turnSystem.getCurrentPlayerIndex() === remotePlayerIndex) {
+          // Устанавливаем правильное оружие перед выстрелом
+          this.tanks[remotePlayerIndex].setWeapon(weaponType);
+          this.tanks[remotePlayerIndex].setTurretAngle(angle);
+          this.tanks[remotePlayerIndex].setPower(power);
           this.fireProjectile();
+        }
+      },
+      onShield: (shieldType: string) => {
+        // Обрабатываем сообщения только когда ход удаленного игрока
+        if (this.tanks[remotePlayerIndex] && this.turnSystem.getCurrentPlayerIndex() === remotePlayerIndex) {
+          const remoteTank = this.tanks[remotePlayerIndex];
+          // Устанавливаем щит перед активацией
+          remoteTank.setWeapon(shieldType);
+          // Активируем щит напрямую на удаленном танке
+          const success = remoteTank.activateShield(shieldType);
+          if (success) {
+            // Play activation sound
+            this.audioSystem.playFire();
+            
+            // Auto-switch to standard weapon after shield activation
+            remoteTank.setWeapon(WeaponType.STANDARD);
+            
+            // Switch turn after shield activation (similar to firing)
+            this.turnSystem.setCanFire(false);
+            this.turnSystem.setWaitingForProjectile(false);
+            
+            // Schedule turn switch
+            this.turnSystem.scheduleTurnSwitch(500);
+            
+            // Update UI
+            this.updateUI();
+          }
+        }
+      },
+      onWeaponChange: (weaponType: string) => {
+        // Обрабатываем сообщения только когда ход удаленного игрока
+        if (this.tanks[remotePlayerIndex] && this.turnSystem.getCurrentPlayerIndex() === remotePlayerIndex) {
+          // Устанавливаем оружие на удаленном танке
+          this.tanks[remotePlayerIndex].setWeapon(weaponType);
+          this.updateUI();
+          
+          // Обновляем превью траектории для оружий (не для щитов)
+          if (weaponType !== WeaponType.SHIELD_SINGLE_USE && weaponType !== WeaponType.SHIELD_MULTI_USE) {
+            const weapon = WeaponFactory.getWeapon(weaponType as WeaponType);
+            this.trajectorySystem.updatePreview(this.tanks[remotePlayerIndex], remotePlayerIndex, weapon);
+          } else {
+            // Очищаем превью для щитов
+            this.trajectorySystem.clearPreview();
+          }
         }
       },
     });
@@ -327,13 +385,16 @@ export class GameScene extends Phaser.Scene {
   }
 
   private setupInput(): void {
+    // Определяем индекс локального игрока (host = 0, client = 1)
+    const localPlayerIndex = this.gameMode === GameMode.Multiplayer ? (this.isHost ? 0 : 1) : 0;
+
     const leftHandler = () => {
       if (!this.turnSystem.canFire()) {
         return;
       }
       const currentIndex = this.turnSystem.getCurrentPlayerIndex();
-      // In P2P multiplayer, only player 1 can control. In local, both players control.
-      if (this.gameMode === GameMode.Multiplayer && currentIndex !== 0) {
+      // В мультиплеере: управляем только своим танком
+      if (this.gameMode === GameMode.Multiplayer && currentIndex !== localPlayerIndex) {
         return;
       }
       if (this.tanks[currentIndex]?.isAlive()) {
@@ -342,7 +403,8 @@ export class GameScene extends Phaser.Scene {
         this.updateUI();
         const weapon = WeaponFactory.getWeapon(this.tanks[currentIndex].getWeapon() as WeaponType);
         this.trajectorySystem.updatePreview(this.tanks[currentIndex], currentIndex, weapon);
-        if (this.networkSync && this.gameMode === GameMode.Multiplayer) {
+        // Отправляем сообщения только когда ход локального игрока
+        if (this.networkSync && this.gameMode === GameMode.Multiplayer && currentIndex === localPlayerIndex) {
           this.networkSync.sendAngle(newAngle);
         }
       }
@@ -353,7 +415,8 @@ export class GameScene extends Phaser.Scene {
         return;
       }
       const currentIndex = this.turnSystem.getCurrentPlayerIndex();
-      if (this.gameMode === GameMode.Multiplayer && currentIndex !== 0) {
+      // В мультиплеере: управляем только своим танком
+      if (this.gameMode === GameMode.Multiplayer && currentIndex !== localPlayerIndex) {
         return;
       }
       if (this.tanks[currentIndex]?.isAlive()) {
@@ -362,7 +425,8 @@ export class GameScene extends Phaser.Scene {
         this.updateUI();
         const weapon = WeaponFactory.getWeapon(this.tanks[currentIndex].getWeapon() as WeaponType);
         this.trajectorySystem.updatePreview(this.tanks[currentIndex], currentIndex, weapon);
-        if (this.networkSync && this.gameMode === GameMode.Multiplayer) {
+        // Отправляем сообщения только когда ход локального игрока
+        if (this.networkSync && this.gameMode === GameMode.Multiplayer && currentIndex === localPlayerIndex) {
           this.networkSync.sendAngle(newAngle);
         }
       }
@@ -373,7 +437,8 @@ export class GameScene extends Phaser.Scene {
         return;
       }
       const currentIndex = this.turnSystem.getCurrentPlayerIndex();
-      if (this.gameMode === GameMode.Multiplayer && currentIndex !== 0) {
+      // В мультиплеере: управляем только своим танком
+      if (this.gameMode === GameMode.Multiplayer && currentIndex !== localPlayerIndex) {
         return;
       }
       if (this.tanks[currentIndex]?.isAlive()) {
@@ -382,7 +447,8 @@ export class GameScene extends Phaser.Scene {
         this.updateUI();
         const weapon = WeaponFactory.getWeapon(this.tanks[currentIndex].getWeapon() as WeaponType);
         this.trajectorySystem.updatePreview(this.tanks[currentIndex], currentIndex, weapon);
-        if (this.networkSync && this.gameMode === GameMode.Multiplayer) {
+        // Отправляем сообщения только когда ход локального игрока
+        if (this.networkSync && this.gameMode === GameMode.Multiplayer && currentIndex === localPlayerIndex) {
           this.networkSync.sendPower(newPower);
         }
       }
@@ -393,7 +459,8 @@ export class GameScene extends Phaser.Scene {
         return;
       }
       const currentIndex = this.turnSystem.getCurrentPlayerIndex();
-      if (this.gameMode === GameMode.Multiplayer && currentIndex !== 0) {
+      // В мультиплеере: управляем только своим танком
+      if (this.gameMode === GameMode.Multiplayer && currentIndex !== localPlayerIndex) {
         return;
       }
       if (this.tanks[currentIndex]?.isAlive()) {
@@ -402,7 +469,8 @@ export class GameScene extends Phaser.Scene {
         this.updateUI();
         const weapon = WeaponFactory.getWeapon(this.tanks[currentIndex].getWeapon() as WeaponType);
         this.trajectorySystem.updatePreview(this.tanks[currentIndex], currentIndex, weapon);
-        if (this.networkSync && this.gameMode === GameMode.Multiplayer) {
+        // Отправляем сообщения только когда ход локального игрока
+        if (this.networkSync && this.gameMode === GameMode.Multiplayer && currentIndex === localPlayerIndex) {
           this.networkSync.sendPower(newPower);
         }
       }
@@ -413,13 +481,17 @@ export class GameScene extends Phaser.Scene {
         return;
       }
       const currentIndex = this.turnSystem.getCurrentPlayerIndex();
-      if (this.gameMode === GameMode.Multiplayer && currentIndex !== 0) {
+      // В мультиплеере: управляем только своим танком
+      if (this.gameMode === GameMode.Multiplayer && currentIndex !== localPlayerIndex) {
         return;
       }
       if (this.tanks[currentIndex]?.isAlive()) {
-        if (this.networkSync && this.gameMode === GameMode.Multiplayer) {
           const tank = this.tanks[currentIndex];
-          this.networkSync.sendFire(tank.getTurretAngle(), tank.getPower());
+        const weaponType = tank.getWeapon();
+        
+        // Отправляем сообщения только когда ход локального игрока
+        if (this.networkSync && this.gameMode === GameMode.Multiplayer && currentIndex === localPlayerIndex) {
+          this.networkSync.sendFire(tank.getTurretAngle(), tank.getPower(), weaponType);
         }
         this.fireProjectile();
       }
@@ -468,7 +540,11 @@ export class GameScene extends Phaser.Scene {
     }
     
     const currentIndex = this.turnSystem.getCurrentPlayerIndex();
-    if (this.gameMode === GameMode.Multiplayer && currentIndex !== 0) {
+    // Определяем индекс локального игрока (host = 0, client = 1)
+    const localPlayerIndex = this.gameMode === GameMode.Multiplayer ? (this.isHost ? 0 : 1) : 0;
+    
+    // В мультиплеере: управляем только своим танком
+    if (this.gameMode === GameMode.Multiplayer && currentIndex !== localPlayerIndex) {
       return;
     }
     
@@ -483,6 +559,11 @@ export class GameScene extends Phaser.Scene {
       
       currentTank.setWeapon(weaponType);
       this.updateUI();
+      
+      // Отправляем сообщение о смене оружия только когда ход локального игрока
+      if (this.networkSync && this.gameMode === GameMode.Multiplayer && currentIndex === localPlayerIndex) {
+        this.networkSync.sendWeaponChange(weaponType);
+      }
       
       // Only update trajectory preview for actual weapons (not shields)
       if (weaponType !== WeaponType.SHIELD_SINGLE_USE && weaponType !== WeaponType.SHIELD_MULTI_USE) {
@@ -515,6 +596,12 @@ export class GameScene extends Phaser.Scene {
 
     // Check if current "weapon" is actually a shield
     if (currentWeapon === WeaponType.SHIELD_SINGLE_USE || currentWeapon === WeaponType.SHIELD_MULTI_USE) {
+      // Отправляем сообщение о щите только когда ход локального игрока
+      const currentIndex = this.turnSystem.getCurrentPlayerIndex();
+      const localPlayerIndex = this.gameMode === GameMode.Multiplayer ? (this.isHost ? 0 : 1) : 0;
+      if (this.networkSync && this.gameMode === GameMode.Multiplayer && currentIndex === localPlayerIndex) {
+        this.networkSync.sendShield(currentWeapon);
+      }
       // Activate shield instead of firing
       this.activateShield(currentWeapon);
       return;
@@ -812,6 +899,8 @@ export class GameScene extends Phaser.Scene {
     this.tanks.forEach((tank) => {
       if (tank.isAlive()) {
         tank.checkGroundSupport(this.terrainSystem);
+        // Обновляем позицию щита (на случай если танк двигался)
+        tank.updateShieldPosition();
       }
     });
 

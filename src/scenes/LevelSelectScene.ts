@@ -1,5 +1,5 @@
 import Phaser from 'phaser';
-import { GameMode, type AIDifficulty } from '@/types';
+import { GameMode, type AIDifficulty, type ILevelConfig } from '@/types';
 import { SINGLEPLAYER_LEVELS } from '@/config/levels';
 import { ProgressManager } from '@/utils/ProgressManager';
 import {
@@ -17,6 +17,7 @@ import { AudioSystem } from '@/systems/AudioSystem';
  */
 export class LevelSelectScene extends Phaser.Scene {
   private difficulty!: AIDifficulty;
+  private gameMode?: GameMode;
   private levelButtons: Phaser.GameObjects.Container[] = [];
   private audioSystem!: AudioSystem;
 
@@ -24,8 +25,9 @@ export class LevelSelectScene extends Phaser.Scene {
     super({ key: 'LevelSelectScene' });
   }
 
-  init(data: { difficulty: AIDifficulty }): void {
+  init(data: { difficulty?: AIDifficulty; gameMode?: GameMode }): void {
     this.difficulty = data?.difficulty || 'medium';
+    this.gameMode = data?.gameMode;
   }
 
   create(): void {
@@ -77,22 +79,38 @@ export class LevelSelectScene extends Phaser.Scene {
       0.5
     );
 
-    // Difficulty subtitle
-    const difficultyText = this.difficulty.toUpperCase();
-    createTextWithShadow(
-      this,
-      titleContainer,
-      width / 2,
-      titleY + 50,
-      `Difficulty: ${difficultyText}`,
-      18,
-      NESColors.yellow,
-      0.5,
-      0.5
-    );
+    // Subtitle - show "2 Players" for local mode, difficulty for singleplayer
+    if (this.gameMode === GameMode.Local) {
+      createTextWithShadow(
+        this,
+        titleContainer,
+        width / 2,
+        titleY + 50,
+        '2 Players',
+        18,
+        NESColors.yellow,
+        0.5,
+        0.5
+      );
+    } else {
+      const difficultyText = this.difficulty.toUpperCase();
+      createTextWithShadow(
+        this,
+        titleContainer,
+        width / 2,
+        titleY + 50,
+        `Difficulty: ${difficultyText}`,
+        18,
+        NESColors.yellow,
+        0.5,
+        0.5
+      );
+    }
 
     // Progress info
-    const completedCount = ProgressManager.getCompletedLevelsCount(this.difficulty);
+    const completedCount = this.gameMode === GameMode.Local
+      ? ProgressManager.getCompletedLevelsCountTwoPlayers()
+      : ProgressManager.getCompletedLevelsCount(this.difficulty);
     const totalLevels = SINGLEPLAYER_LEVELS.length;
     const progressText = `Progress: ${completedCount}/${totalLevels} levels completed`;
     createTextWithShadow(
@@ -142,8 +160,12 @@ export class LevelSelectScene extends Phaser.Scene {
       const x = startX + col * (buttonWidth + spacing);
       const y = startY + row * (buttonHeight + spacing);
       
-      const isUnlocked = ProgressManager.isLevelUnlocked(this.difficulty, i);
-      const isCompleted = ProgressManager.isLevelCompleted(this.difficulty, i);
+      const isUnlocked = this.gameMode === GameMode.Local
+        ? ProgressManager.isLevelUnlockedTwoPlayers(i)
+        : ProgressManager.isLevelUnlocked(this.difficulty, i);
+      const isCompleted = this.gameMode === GameMode.Local
+        ? ProgressManager.isLevelCompletedTwoPlayers(i)
+        : ProgressManager.isLevelCompleted(this.difficulty, i);
       
       this.createLevelButton(
         gridContainer,
@@ -264,12 +286,29 @@ export class LevelSelectScene extends Phaser.Scene {
     // Stop menu music
     this.audioSystem.stopMenuMusic();
     
+    // Use gameMode from init data, default to Solo if not provided
+    const gameMode = this.gameMode || GameMode.Solo;
+    
+    // Always pass levelConfig - get it from SINGLEPLAYER_LEVELS
+    const levelConfig = SINGLEPLAYER_LEVELS[levelIndex];
+    
     // Start game with selected level
-    this.scene.start('GameScene', {
-      gameMode: GameMode.Solo,
-      aiDifficulty: this.difficulty,
+    const gameData: {
+      gameMode: GameMode;
+      levelConfig: ILevelConfig;
+      levelIndex: number;
+      aiDifficulty?: AIDifficulty;
+    } = {
+      gameMode: gameMode,
+      levelConfig: levelConfig,
       levelIndex: levelIndex,
-    });
+    };
+    
+    if (gameMode === GameMode.Solo) {
+      gameData.aiDifficulty = this.difficulty;
+    }
+    
+    this.scene.start('GameScene', gameData);
   }
 
   /**
@@ -289,11 +328,15 @@ export class LevelSelectScene extends Phaser.Scene {
         text: 'BACK',
         active: false,
         onClick: () => {
-          // Return to difficulty selection menu
-          this.scene.start('MenuScene', {
-            showDifficultyMenu: true,
-            selectedDifficulty: this.difficulty,
-          });
+          // Return to main menu for 2 Players mode, difficulty menu for singleplayer
+          if (this.gameMode === GameMode.Local) {
+            this.scene.start('MenuScene');
+          } else {
+            this.scene.start('MenuScene', {
+              showDifficultyMenu: true,
+              selectedDifficulty: this.difficulty,
+            });
+          }
         },
       }
     );
@@ -304,11 +347,15 @@ export class LevelSelectScene extends Phaser.Scene {
    */
   private setupKeyboardControls(): void {
     this.input.keyboard?.on('keydown-ESCAPE', () => {
-      // Return to difficulty selection menu
-      this.scene.start('MenuScene', {
-        showDifficultyMenu: true,
-        selectedDifficulty: this.difficulty,
-      });
+      // Return to main menu for 2 Players mode, difficulty menu for singleplayer
+      if (this.gameMode === GameMode.Local) {
+        this.scene.start('MenuScene');
+      } else {
+        this.scene.start('MenuScene', {
+          showDifficultyMenu: true,
+          selectedDifficulty: this.difficulty,
+        });
+      }
     });
   }
 

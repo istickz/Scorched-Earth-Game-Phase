@@ -130,11 +130,11 @@ export class UISystem {
       return;
     }
 
-    let modeText = 'Singleplayer';
+    let modeText = '1 Player';
     if (gameMode === GameMode.Multiplayer) {
-      modeText = 'P2P Multiplayer';
+      modeText = 'Multiplayer';
     } else if (gameMode === GameMode.Local) {
-      modeText = 'Local Multiplayer';
+      modeText = '2 Players';
     }
     
     // Add level number for singleplayer mode

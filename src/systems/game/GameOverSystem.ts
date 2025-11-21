@@ -97,6 +97,17 @@ export class GameOverSystem {
           // All levels completed
           this.showGameOver('Congratulations! All Levels Completed!');
         }
+      } else if (this.gameMode === GameMode.Local) {
+        // For 2 players mode, save progress and advance to next level regardless of winner
+        ProgressManager.completeLevelTwoPlayers(this.currentLevelIndex);
+        
+        const nextLevelIndex = this.currentLevelIndex + 1;
+        if (nextLevelIndex < SINGLEPLAYER_LEVELS.length) {
+          this.showLevelComplete(nextLevelIndex);
+        } else {
+          // All levels completed
+          this.showGameOver(`Player ${winnerIndex + 1} Wins! All Levels Completed!`);
+        }
       } else {
         // AI won or other modes
         this.showGameOver(`Player ${winnerIndex + 1} Wins!`);
@@ -163,9 +174,11 @@ export class GameOverSystem {
     // Input handlers
     const spaceHandler = () => {
       // Advance to next level
+      const nextLevelConfig = SINGLEPLAYER_LEVELS[nextLevelIndex];
       this.scene.scene.start('GameScene', {
         gameMode: this.gameMode,
         aiDifficulty: this.aiDifficulty,
+        levelConfig: nextLevelConfig,
         levelIndex: nextLevelIndex,
       });
     };
