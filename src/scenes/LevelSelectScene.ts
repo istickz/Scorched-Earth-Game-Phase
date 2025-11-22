@@ -1,5 +1,5 @@
 import Phaser from 'phaser';
-import { GameMode, type AIDifficulty, type ILevelConfig } from '@/types';
+import { GameMode, type AIDifficulty, type ILevelConfig, type ConnectionState } from '@/types';
 import { SINGLEPLAYER_LEVELS } from '@/config/levels';
 import { ProgressManager } from '@/utils/ProgressManager';
 import {
@@ -11,6 +11,8 @@ import {
   NESColors,
 } from '@/utils/NESUI';
 import { AudioSystem } from '@/systems/AudioSystem';
+import { WebRTCManager } from '@/network/WebRTCManager';
+import { LobbyConnectionManager } from '@/network/LobbyConnectionManager';
 
 /**
  * Level selection scene - shows grid of levels with locked/unlocked status
@@ -20,14 +22,29 @@ export class LevelSelectScene extends Phaser.Scene {
   private gameMode?: GameMode;
   private levelButtons: Phaser.GameObjects.Container[] = [];
   private audioSystem!: AudioSystem;
+  
+  // Multiplayer fields
+  private webrtcManager?: WebRTCManager;
+  private isHost: boolean = false;
+  private lobbyConnectionManager?: LobbyConnectionManager;
+  private levelButtonContainers: Map<number, Phaser.GameObjects.Container> = new Map();
 
   constructor() {
     super({ key: 'LevelSelectScene' });
   }
 
-  init(data: { difficulty?: AIDifficulty; gameMode?: GameMode }): void {
+  init(data: { 
+    difficulty?: AIDifficulty; 
+    gameMode?: GameMode;
+    webrtcManager?: WebRTCManager;
+    isHost?: boolean;
+    lobbyConnectionManager?: LobbyConnectionManager;
+  }): void {
     this.difficulty = data?.difficulty || 'medium';
     this.gameMode = data?.gameMode;
+    this.webrtcManager = data?.webrtcManager;
+    this.isHost = data?.isHost ?? false;
+    this.lobbyConnectionManager = data?.lobbyConnectionManager;
   }
 
   create(): void {
@@ -48,6 +65,16 @@ export class LevelSelectScene extends Phaser.Scene {
 
     // Create back button
     this.createBackButton(screenWidth, screenHeight);
+
+    // Setup multiplayer sync if in multiplayer mode
+    if (this.gameMode === GameMode.Multiplayer && this.lobbyConnectionManager) {
+      this.setupMultiplayerSync();
+      
+      // Create waiting status for client
+      if (!this.isHost) {
+        this.createWaitingStatus(screenWidth, screenHeight);
+      }
+    }
 
     // Play menu music
     this.audioSystem.playMenuMusic(this);
@@ -79,7 +106,7 @@ export class LevelSelectScene extends Phaser.Scene {
       0.5
     );
 
-    // Subtitle - show "2 Players" for local mode, difficulty for singleplayer
+    // Subtitle - show "2 Players" for local mode, "Multiplayer" for multiplayer, difficulty for singleplayer
     if (this.gameMode === GameMode.Local) {
       createTextWithShadow(
         this,
@@ -87,6 +114,18 @@ export class LevelSelectScene extends Phaser.Scene {
         width / 2,
         titleY + 50,
         '2 Players',
+        18,
+        NESColors.yellow,
+        0.5,
+        0.5
+      );
+    } else if (this.gameMode === GameMode.Multiplayer) {
+      createTextWithShadow(
+        this,
+        titleContainer,
+        width / 2,
+        titleY + 50,
+        'Multiplayer',
         18,
         NESColors.yellow,
         0.5,
@@ -107,7 +146,8 @@ export class LevelSelectScene extends Phaser.Scene {
       );
     }
 
-    // Progress info
+    // Progress info (skip for multiplayer)
+    if (this.gameMode !== GameMode.Multiplayer) {
     const completedCount = this.gameMode === GameMode.Local
       ? ProgressManager.getCompletedLevelsCountTwoPlayers()
       : ProgressManager.getCompletedLevelsCount(this.difficulty);
@@ -124,6 +164,7 @@ export class LevelSelectScene extends Phaser.Scene {
       0.5,
       0.5
     );
+    }
   }
 
   /**
@@ -160,12 +201,17 @@ export class LevelSelectScene extends Phaser.Scene {
       const x = startX + col * (buttonWidth + spacing);
       const y = startY + row * (buttonHeight + spacing);
       
-      const isUnlocked = this.gameMode === GameMode.Local
+      // For multiplayer, all levels are unlocked
+      const isUnlocked = this.gameMode === GameMode.Multiplayer
+        ? true
+        : (this.gameMode === GameMode.Local
         ? ProgressManager.isLevelUnlockedTwoPlayers(i)
-        : ProgressManager.isLevelUnlocked(this.difficulty, i);
-      const isCompleted = this.gameMode === GameMode.Local
+          : ProgressManager.isLevelUnlocked(this.difficulty, i));
+      const isCompleted = this.gameMode === GameMode.Multiplayer
+        ? false // Don't show completion status in multiplayer
+        : (this.gameMode === GameMode.Local
         ? ProgressManager.isLevelCompletedTwoPlayers(i)
-        : ProgressManager.isLevelCompleted(this.difficulty, i);
+          : ProgressManager.isLevelCompleted(this.difficulty, i));
       
       this.createLevelButton(
         gridContainer,
@@ -226,7 +272,15 @@ export class LevelSelectScene extends Phaser.Scene {
         text: buttonText,
         onClick: () => {
           if (isUnlocked) {
+            // For multiplayer, use different logic
+            if (this.gameMode === GameMode.Multiplayer) {
+              if (this.isHost) {
+                this.selectLevelForMultiplayer(levelIndex);
+              }
+              // Client cannot select levels
+            } else {
             this.startLevel(levelIndex);
+            }
           } else {
             // Play error sound or show message
             try {
@@ -239,6 +293,11 @@ export class LevelSelectScene extends Phaser.Scene {
         selected: false,
       }
     );
+    
+    // Store button container reference for highlighting
+    if (this.gameMode === GameMode.Multiplayer) {
+      this.levelButtonContainers.set(levelIndex, buttonResult.container);
+    }
     
     // Override colors and disable hover effects for locked levels
     if (!isUnlocked) {
@@ -277,6 +336,21 @@ export class LevelSelectScene extends Phaser.Scene {
     }
     
     this.levelButtons.push(buttonResult.container);
+    
+    // For multiplayer client, disable clicks on levels
+    if (this.gameMode === GameMode.Multiplayer && !this.isHost) {
+      buttonResult.bg.removeInteractive();
+      buttonResult.bg.setInteractive({
+        hitArea: new Phaser.Geom.Rectangle(-width / 2, -height / 2, width, height),
+        hitAreaCallback: Phaser.Geom.Rectangle.Contains,
+        useHandCursor: false,
+      });
+      buttonResult.bg.off('pointerover');
+      buttonResult.bg.off('pointerout');
+      buttonResult.bg.on('pointerdown', () => {
+        // Do nothing - client cannot select levels
+      });
+    }
   }
 
   /**
@@ -328,8 +402,10 @@ export class LevelSelectScene extends Phaser.Scene {
         text: 'BACK',
         active: false,
         onClick: () => {
-          // Return to main menu for 2 Players mode, difficulty menu for singleplayer
-          if (this.gameMode === GameMode.Local) {
+          // Return to multiplayer lobby for multiplayer mode
+          if (this.gameMode === GameMode.Multiplayer) {
+            this.scene.start('MultiplayerLobbyScene');
+          } else if (this.gameMode === GameMode.Local) {
             this.scene.start('MenuScene');
           } else {
             this.scene.start('MenuScene', {
@@ -347,8 +423,10 @@ export class LevelSelectScene extends Phaser.Scene {
    */
   private setupKeyboardControls(): void {
     this.input.keyboard?.on('keydown-ESCAPE', () => {
-      // Return to main menu for 2 Players mode, difficulty menu for singleplayer
-      if (this.gameMode === GameMode.Local) {
+      // Return to multiplayer lobby for multiplayer mode
+      if (this.gameMode === GameMode.Multiplayer) {
+        this.scene.start('MultiplayerLobbyScene');
+      } else if (this.gameMode === GameMode.Local) {
         this.scene.start('MenuScene');
       } else {
         this.scene.start('MenuScene', {
@@ -359,10 +437,193 @@ export class LevelSelectScene extends Phaser.Scene {
     });
   }
 
+  /**
+   * Setup multiplayer synchronization
+   */
+  private setupMultiplayerSync(): void {
+    if (!this.lobbyConnectionManager) {
+      return;
+    }
+
+    // Listen for level selection from host
+    this.lobbyConnectionManager.on('levelSelected', (levelIndex: number) => {
+      if (!this.isHost) {
+        // Client receives level selection
+        this.highlightSelectedLevel(levelIndex);
+      }
+    });
+
+    // Listen for game start signal
+    this.lobbyConnectionManager.on('gameReady', (levelConfig?: ILevelConfig) => {
+      if (levelConfig) {
+        this.startMultiplayerGame(levelConfig);
+      }
+    });
+
+    // Listen for connection state changes
+    if (this.webrtcManager) {
+      this.webrtcManager.setOnStateChange((state: ConnectionState) => {
+        if (state === 'disconnected' || state === 'error') {
+          this.showDisconnectionMessage();
+        }
+      });
+    }
+  }
+
+  /**
+   * Select level for multiplayer (host only) - immediately starts the game
+   */
+  private selectLevelForMultiplayer(levelIndex: number): void {
+    if (!this.isHost || !this.lobbyConnectionManager) {
+      return;
+    }
+
+    // Validate level index
+    if (levelIndex < 0 || levelIndex >= SINGLEPLAYER_LEVELS.length) {
+      console.error('Invalid level index:', levelIndex);
+      return;
+    }
+
+    // Get level config
+    const levelConfig = SINGLEPLAYER_LEVELS[levelIndex];
+    
+    // Send level selection to client (for visual feedback)
+    this.lobbyConnectionManager.sendLevelSelected(levelIndex);
+    
+    // Immediately send start game signal with level config
+    this.lobbyConnectionManager.sendStartGame(levelConfig);
+    
+    // Start game on host
+    this.startMultiplayerGame(levelConfig);
+  }
+
+  /**
+   * Highlight selected level
+   */
+  private highlightSelectedLevel(levelIndex: number): void {
+    const buttonWidth = 180;
+    const buttonHeight = 100;
+    
+    // Reset all buttons to default state
+    this.levelButtonContainers.forEach((container) => {
+      const buttonBg = container.list.find((child) => 
+        child instanceof Phaser.GameObjects.Graphics
+      ) as Phaser.GameObjects.Graphics;
+      
+      if (buttonBg) {
+        // Default colors
+        const backgroundColor = NESColors.darkGray;
+        const borderColor = NESColors.blue;
+        
+        buttonBg.clear();
+        buttonBg.fillStyle(backgroundColor, 1);
+        buttonBg.fillRoundedRect(-buttonWidth / 2, -buttonHeight / 2, buttonWidth, buttonHeight, 8);
+        buttonBg.lineStyle(2, borderColor, 1);
+        buttonBg.strokeRoundedRect(-buttonWidth / 2, -buttonHeight / 2, buttonWidth, buttonHeight, 8);
+      }
+    });
+
+    // Highlight selected level
+    const selectedContainer = this.levelButtonContainers.get(levelIndex);
+    if (selectedContainer) {
+      const buttonBg = selectedContainer.list.find((child) => 
+        child instanceof Phaser.GameObjects.Graphics
+      ) as Phaser.GameObjects.Graphics;
+      
+      if (buttonBg) {
+        // Highlight color: yellow for host, blue for client
+        const highlightColor = this.isHost ? NESColors.yellow : NESColors.blue;
+        const backgroundColor = NESColors.darkGray;
+        
+        buttonBg.clear();
+        buttonBg.fillStyle(backgroundColor, 1);
+        buttonBg.fillRoundedRect(-buttonWidth / 2, -buttonHeight / 2, buttonWidth, buttonHeight, 8);
+        buttonBg.lineStyle(3, highlightColor, 1);
+        buttonBg.strokeRoundedRect(-buttonWidth / 2, -buttonHeight / 2, buttonWidth, buttonHeight, 8);
+      }
+    }
+  }
+
+  /**
+   * Create waiting status (client only)
+   */
+  private createWaitingStatus(screenWidth: number, screenHeight: number): void {
+    const statusY = screenHeight - 120;
+    
+    createTextWithShadow(
+      this,
+      this.add.container(0, 0),
+      screenWidth / 2,
+      statusY,
+      'Waiting for host to select level...',
+      20,
+      NESColors.white,
+      0.5,
+      0.5
+    );
+  }
+
+  /**
+   * Start multiplayer game
+   */
+  private startMultiplayerGame(levelConfig: ILevelConfig): void {
+    if (!this.webrtcManager) {
+      console.error('WebRTC manager not initialized');
+      return;
+    }
+
+    // Stop menu music
+    this.audioSystem.stopMenuMusic();
+    
+    // Start game with level config
+    this.scene.start('GameScene', {
+      gameMode: GameMode.Multiplayer,
+      webrtcManager: this.webrtcManager,
+      isHost: this.isHost,
+      levelConfig: levelConfig,
+    });
+  }
+
+  /**
+   * Show disconnection message
+   */
+  private showDisconnectionMessage(): void {
+    const width = this.cameras.main.width;
+    const height = this.cameras.main.height;
+
+    // Connection Lost text with shadow
+    const lostShadow = this.add.bitmapText(width / 2 + 2, height / 2 + 2, 'pixel-font', 'Connection Lost', 32);
+    lostShadow.setTintFill(0x000000);
+    lostShadow.setOrigin(0.5);
+
+    const lostText = this.add.bitmapText(width / 2, height / 2, 'pixel-font', 'Connection Lost', 32);
+    lostText.setTintFill(0xff0000);
+    lostText.setOrigin(0.5);
+
+    // Press R text with shadow
+    const pressRShadow = this.add.bitmapText(width / 2 + 1, height / 2 + 51, 'pixel-font', 'Press R to return to lobby', 20);
+    pressRShadow.setTintFill(0x000000);
+    pressRShadow.setOrigin(0.5);
+
+    const pressRText = this.add.bitmapText(width / 2, height / 2 + 50, 'pixel-font', 'Press R to return to lobby', 20);
+    pressRText.setTintFill(0xffffff);
+    pressRText.setOrigin(0.5);
+
+    this.input.keyboard?.once('keydown-R', () => {
+      this.scene.start('MultiplayerLobbyScene');
+    });
+  }
+
 
   shutdown(): void {
     // Clean up keyboard listeners
     this.input.keyboard?.off('keydown-ESCAPE');
+    
+    // Clean up multiplayer event listeners
+    if (this.lobbyConnectionManager) {
+      this.lobbyConnectionManager.off('levelSelected');
+      this.lobbyConnectionManager.off('gameReady');
+    }
     
     // Stop menu music when leaving
     if (this.audioSystem) {

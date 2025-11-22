@@ -416,11 +416,9 @@ export class MultiplayerLobbyScene extends Phaser.Scene {
         statusMsg = 'Connecting...';
         break;
       case 'connected':
-        statusMsg = 'Connected! Starting game...';
-        if (this.lobbyConnectionManager.getIsHost()) {
-          // Host generates levelConfig and sends to client
-          this.generateAndSendLevelConfig();
-        }
+        statusMsg = 'Connected!';
+        // Navigate to level selection scene instead of generating random level
+        this.navigateToLevelSelect();
         break;
       case 'disconnected':
         statusMsg = 'Disconnected';
@@ -433,6 +431,34 @@ export class MultiplayerLobbyScene extends Phaser.Scene {
       this.statusText.setText(statusMsg);
       this.statusTextShadow.setText(statusMsg);
     }
+  }
+
+  /**
+   * Navigate to level selection scene
+   */
+  private navigateToLevelSelect(): void {
+    if (!this.lobbyConnectionManager) {
+      console.error('Lobby connection manager not initialized');
+      return;
+    }
+
+    const isHost = this.lobbyConnectionManager.getIsHost();
+    const webrtcManager = this.lobbyConnectionManager.getWebRTCManager();
+
+    console.log(`${isHost ? 'Host' : 'Client'}: Navigating to level selection...`);
+    
+    // Stop menu music
+    if (this.audioSystem) {
+      this.audioSystem.stopMenuMusic();
+    }
+
+    // Navigate to LevelSelectScene with multiplayer parameters
+    this.scene.start('LevelSelectScene', {
+      gameMode: 'multiplayer',
+      webrtcManager: webrtcManager,
+      isHost: isHost,
+      lobbyConnectionManager: this.lobbyConnectionManager,
+    });
   }
 
   /**
@@ -710,38 +736,6 @@ export class MultiplayerLobbyScene extends Phaser.Scene {
     document.body.appendChild(this.loadingOverlay);
   }
 
-  /**
-   * Generate level config and send to client
-   */
-  private generateAndSendLevelConfig(): void {
-    if (!this.lobbyConnectionManager) {
-      console.error('Lobby connection manager not initialized');
-      return;
-    }
-
-    // Generate random levelConfig with seed
-    const levelConfig = createRandomLevelConfig();
-    const seed = Math.random() * 1000000;
-    levelConfig.seed = seed;
-
-    // Generate deterministic wind variation based on seed
-    const defaultEffects = EnvironmentSystem.getEffects(
-      levelConfig.biome,
-      levelConfig.weather,
-      levelConfig.timeOfDay
-    );
-    const windVar = EnvironmentSystem.getWindVariationFromSeed(seed * 0.7);
-    levelConfig.environmentEffects = {
-      ...defaultEffects,
-      windX: defaultEffects.windX + windVar.windX,
-      windY: defaultEffects.windY + windVar.windY,
-    };
-
-    console.log('Host: Generated levelConfig with seed:', seed);
-
-    // Send to client via manager
-    this.lobbyConnectionManager.sendLevelConfig(levelConfig);
-  }
 
   /**
    * Hide loading spinner

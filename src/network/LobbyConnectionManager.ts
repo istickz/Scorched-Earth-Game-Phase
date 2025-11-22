@@ -13,6 +13,9 @@ export class LobbyConnectionManager extends Phaser.Events.EventEmitter {
   private connectionTimeout?: ReturnType<typeof setTimeout>;
   private gameStartTimer?: ReturnType<typeof setTimeout>;
   private waitingForReady: boolean = false;
+  // waitingForStart is used in old flow (when connected state triggers game start)
+  // In new flow (level selection), it's set but not checked, kept for compatibility
+  // @ts-expect-error - Used in old flow, kept for compatibility
   private waitingForStart: boolean = false;
   private levelConfig?: ILevelConfig;
 
@@ -316,36 +319,23 @@ export class LobbyConnectionManager extends Phaser.Events.EventEmitter {
     // Emit state change event
     this.emit('connectionStateChanged', state);
 
-    if (state === 'connected') {
-      if (this.isHost) {
-        // Host waits for levelConfig to be sent (by scene) and then waits for "ready" from client
-        this.waitingForReady = true;
-
-        // Fallback timer in case "ready" doesn't arrive
-        this.gameStartTimer = setTimeout(() => {
-          console.warn('Host: Ready timeout, starting game anyway');
-          this.waitingForReady = false;
-          this.emit('gameReady', this.levelConfig);
-        }, 5000);
-      } else {
-        // Client waits for levelConfig and "start game" signal
-        this.waitingForStart = true;
-
-        // Fallback timer in case messages don't arrive
-        this.gameStartTimer = setTimeout(() => {
-          console.warn('Client: Start game timeout, starting game anyway');
-          this.waitingForStart = false;
-          this.emit('gameReady', this.levelConfig);
-        }, 5000);
-      }
-    }
+    // Note: In new flow (level selection), game is started only when host clicks "Start Game"
+    // No automatic fallback timers needed - game starts explicitly from LevelSelectScene
+    // Old flow timers removed to prevent auto-start
   }
 
   /**
    * Handle network messages for game synchronization
    */
   private handleMessage(message: INetworkMessage): void {
-    if (message.type === 'levelConfig' && message.data) {
+    if (message.type === 'levelSelected' && message.data) {
+      // Client receives level selection from host
+      if (!this.isHost && typeof message.data === 'object' && 'levelIndex' in message.data) {
+        const levelIndex = (message.data as { levelIndex: number }).levelIndex;
+        console.log('Client: Received level selection:', levelIndex);
+        this.emit('levelSelected', levelIndex);
+      }
+    } else if (message.type === 'levelConfig' && message.data) {
       console.log('Received levelConfig from host');
       this.levelConfig = message.data as ILevelConfig;
 
@@ -381,7 +371,7 @@ export class LobbyConnectionManager extends Phaser.Events.EventEmitter {
       }
     } else if (message.type === 'startGame') {
       // Client receives "start game" signal from host
-      if (!this.isHost && this.waitingForStart) {
+      if (!this.isHost) {
         console.log('Client: Received start game signal from host');
         this.waitingForStart = false;
 
@@ -390,6 +380,13 @@ export class LobbyConnectionManager extends Phaser.Events.EventEmitter {
           clearTimeout(this.gameStartTimer);
           this.gameStartTimer = undefined;
         }
+
+        // Extract levelConfig from message data if present (new flow)
+        if (message.data && typeof message.data === 'object' && 'levelConfig' in message.data) {
+          this.levelConfig = (message.data as { levelConfig: ILevelConfig }).levelConfig;
+          console.log('Client: Received levelConfig in startGame message');
+        }
+        // If levelConfig not in message, use stored levelConfig (old flow compatibility)
 
         // Start game on client
         this.emit('gameReady', this.levelConfig);
@@ -418,6 +415,52 @@ export class LobbyConnectionManager extends Phaser.Events.EventEmitter {
       console.log('Host: Sent levelConfig to client');
     } else {
       console.warn('Host: Cannot send levelConfig - not connected yet');
+    }
+  }
+
+  /**
+   * Send level selection to client (host only)
+   */
+  public sendLevelSelected(levelIndex: number): void {
+    if (!this.isHost) {
+      throw new Error('Only host can send level selection');
+    }
+
+    console.log('Host: Sending level selection:', levelIndex);
+
+    // Send to client
+    if (this.webrtcManager && this.webrtcManager.isConnected()) {
+      this.webrtcManager.sendMessage({
+        type: 'levelSelected',
+        data: { levelIndex },
+      });
+      console.log('Host: Sent level selection to client');
+    } else {
+      console.warn('Host: Cannot send level selection - not connected yet');
+    }
+  }
+
+  /**
+   * Send start game signal with level config (host only)
+   */
+  public sendStartGame(levelConfig: ILevelConfig): void {
+    if (!this.isHost) {
+      throw new Error('Only host can send start game signal');
+    }
+
+    this.levelConfig = levelConfig;
+
+    console.log('Host: Sending start game signal with levelConfig');
+
+    // Send to client
+    if (this.webrtcManager && this.webrtcManager.isConnected()) {
+      this.webrtcManager.sendMessage({
+        type: 'startGame',
+        data: { levelConfig },
+      });
+      console.log('Host: Sent start game signal to client');
+    } else {
+      console.warn('Host: Cannot send start game signal - not connected yet');
     }
   }
 
