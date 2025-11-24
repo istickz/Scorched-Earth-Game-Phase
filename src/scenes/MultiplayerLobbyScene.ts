@@ -12,8 +12,14 @@ import {
   NESColors,
 } from '@/utils/NESUI';
 import { AudioSystem } from '@/systems/AudioSystem';
-import { createRandomLevelConfig } from '@/utils/levelUtils';
-import { EnvironmentSystem } from '@/systems/EnvironmentSystem';
+
+/**
+ * Container with additional width and height properties
+ */
+interface IContainerWithDimensions extends Phaser.GameObjects.Container {
+  width: number;
+  height: number;
+}
 
 /**
  * Multiplayer lobby scene for WebRTC connection setup
@@ -25,7 +31,7 @@ export class MultiplayerLobbyScene extends Phaser.Scene {
   private offerInput?: Phaser.GameObjects.DOMElement;
   private answerInput?: Phaser.GameObjects.DOMElement;
   private generatedAnswerInput?: Phaser.GameObjects.DOMElement;
-  private contentContainer!: Phaser.GameObjects.Container;
+  private contentContainer!: IContainerWithDimensions;
   private audioSystem!: AudioSystem;
   private offerShown: boolean = false;
   private roleSelectionContainer?: Phaser.GameObjects.Container;
@@ -64,11 +70,11 @@ export class MultiplayerLobbyScene extends Phaser.Scene {
     const containerY = containerTopY + containerHeight / 2;
 
     // Create content container with NES-style border
-    this.contentContainer = createNESContainer(this, containerX, containerY, contentWidth, containerHeight);
+    this.contentContainer = createNESContainer(this, containerX, containerY, contentWidth, containerHeight) as IContainerWithDimensions;
     
     // Store container properties
-    (this.contentContainer as any).width = contentWidth;
-    (this.contentContainer as any).height = containerHeight;
+    this.contentContainer.width = contentWidth;
+    this.contentContainer.height = containerHeight;
 
     // RELATIVE coordinates from container center (0, 0)
     const contentStartY = -containerHeight / 2 + containerPadding + 30;
@@ -206,8 +212,8 @@ export class MultiplayerLobbyScene extends Phaser.Scene {
    * Show offer input field
    */
   private showOfferInput(offerString: string): void {
-    const containerWidth = (this.contentContainer as any).width || 1200;
-    const containerHeight = (this.contentContainer as any).height || 750; // Обновили с 700 до 750
+    const containerWidth = this.contentContainer.width || 1200;
+    const containerHeight = this.contentContainer.height || 750; // Обновили с 700 до 750
     const containerPadding = 60;
     const textareaHeight = 100;
     
@@ -283,8 +289,8 @@ export class MultiplayerLobbyScene extends Phaser.Scene {
    * Show answer input field
    */
   private showAnswerInput(): void {
-    const containerWidth = (this.contentContainer as any).width || 1200;
-    const containerHeight = (this.contentContainer as any).height || 750; // Обновили с 700 до 750
+    const containerWidth = this.contentContainer.width || 1200;
+    const containerHeight = this.contentContainer.height || 750; // Обновили с 700 до 750
     const containerPadding = 60;
     const textareaHeight = 100;
     
@@ -571,8 +577,8 @@ export class MultiplayerLobbyScene extends Phaser.Scene {
    * Displays in a separate field below the offer input
    */
   private showGeneratedAnswer(answerString: string): void {
-    const containerWidth = (this.contentContainer as any).width || 1200;
-    const containerHeight = (this.contentContainer as any).height || 750; // Обновили
+    const containerWidth = this.contentContainer.width || 1200;
+    const containerHeight = this.contentContainer.height || 750; // Обновили
     const containerPadding = 60;
     const textareaHeight = 100;
     

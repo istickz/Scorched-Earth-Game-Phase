@@ -25,14 +25,7 @@ export class Tank extends Phaser.GameObjects.Container {
   private power: number = 50; // 0-200
   private weaponType: string = 'standard'; // Current weapon type
   // Ammunition system: standard is infinite (-1), others are limited
-  private ammunition: Map<string, number> = new Map([
-    ['standard', -1],  // -1 means infinite
-    ['salvo', 3],      // 3 salvos
-    ['hazelnut', 3],   // 3 hazelnuts
-    ['bouncing', 3],   // 3 bouncing shells
-    ['shield_single_use', 2],  // 2 single-use shields
-    ['shield_multi_use', 1],  // 1 multi-use shield
-  ]);
+  private ammunition: Map<string, number>;
   
   // Active shield
   private activeShield: Shield | null = null;
@@ -44,9 +37,12 @@ export class Tank extends Phaser.GameObjects.Container {
   private barrelWidth: number = 6;
   private isStatic: boolean = true; // Start as static (standing on ground)
 
-  constructor(scene: Phaser.Scene, config: ITankConfig) {
+  constructor(scene: Phaser.Scene, config: ITankConfig, ammunitionConfig: Record<string, number>) {
     super(scene, config.x, config.y);
     this.config = { ...config };
+    
+    // Initialize ammunition from config
+    this.ammunition = new Map(Object.entries(ammunitionConfig));
 
     this.createTank();
     this.createHealthBar();

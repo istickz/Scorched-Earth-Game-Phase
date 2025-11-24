@@ -21,6 +21,7 @@ import { ProjectileCollisionSystem } from '@/systems/game/ProjectileCollisionSys
 import { WeaponFactory } from '@/entities/weapons';
 import { WeaponType } from '@/types/weapons';
 import { type IFirePlan } from '@/types/weapons';
+import { DEFAULT_WEAPONS_CONFIG } from '@/config/weapons';
 
 /**
  * Main game scene
@@ -49,6 +50,9 @@ export class GameScene extends Phaser.Scene {
   
   // Input handlers for cleanup
   private inputHandlers: Array<{ event: string; callback: () => void }> = [];
+  
+  // Available weapons from level config
+  private availableWeapons: string[] = [];
 
   constructor() {
     super({ key: 'GameScene' });
@@ -180,6 +184,8 @@ export class GameScene extends Phaser.Scene {
     // Initialize game systems
     this.uiSystem = new UISystem(this);
     this.uiSystem.setup();
+    // Set available weapons from level config (availableWeapons is set in createTanks)
+    this.uiSystem.setAvailableWeapons(this.availableWeapons);
     
     this.turnSystem = new TurnSystem(this, this.tanks, this.gameMode, this.aiSystem);
     this.turnSystem.setCallbacks({
@@ -227,6 +233,17 @@ export class GameScene extends Phaser.Scene {
     // В мультиплеере: host всегда слева (tank 0), client справа (tank 1)
     // Размещение танков одинаковое для всех, но управление зависит от isHost
 
+    // Get weapons config from level config
+    const weaponsConfig = this.levelConfig!.weaponsConfig;
+    // Extract available weapons from ammunition (weapons with ammo != 0 and != undefined)
+    // Order: use default order from DEFAULT_WEAPONS_CONFIG for consistency
+    const defaultOrder = Object.keys(DEFAULT_WEAPONS_CONFIG.ammunition);
+    const availableKeys = Object.keys(weaponsConfig.ammunition).filter(
+      key => weaponsConfig.ammunition[key] !== 0 && weaponsConfig.ammunition[key] !== undefined
+    );
+    // Sort by default order to maintain consistent UI order
+    this.availableWeapons = defaultOrder.filter(key => availableKeys.includes(key));
+
     const tank1Config: ITankConfig = {
       x: tank1X,
       y: tank1Y,
@@ -249,11 +266,11 @@ export class GameScene extends Phaser.Scene {
       isPlayer: this.gameMode === GameMode.Multiplayer || this.gameMode === GameMode.Local,
     };
 
-    const tank1 = new Tank(this, tank1Config);
+    const tank1 = new Tank(this, tank1Config, weaponsConfig.ammunition);
     tank1.positionOnTerrain(tank1Y);
     this.tanks.push(tank1);
 
-    const tank2 = new Tank(this, tank2Config);
+    const tank2 = new Tank(this, tank2Config, weaponsConfig.ammunition);
     tank2.positionOnTerrain(tank2Y);
     this.tanks.push(tank2);
   }
@@ -497,24 +514,24 @@ export class GameScene extends Phaser.Scene {
       }
     };
 
-    const weapon1Handler = () => this.switchWeapon(WeaponType.STANDARD);
-    const weapon2Handler = () => this.switchWeapon(WeaponType.SALVO);
-    const weapon3Handler = () => this.switchWeapon(WeaponType.HAZELNUT);
-    const weapon4Handler = () => this.switchWeapon(WeaponType.BOUNCING);
-    const weapon5Handler = () => this.switchWeapon(WeaponType.SHIELD_SINGLE_USE);
-    const weapon6Handler = () => this.switchWeapon(WeaponType.SHIELD_MULTI_USE);
+    // Dynamic weapon handlers based on available weapons
+    const weaponHandlers: Array<{ event: string; callback: () => void }> = [];
+    
+    // Create handlers for available weapons (max 6)
+    this.availableWeapons.slice(0, 6).forEach((weaponType, index) => {
+      const keyNames = ['ONE', 'TWO', 'THREE', 'FOUR', 'FIVE', 'SIX'] as const;
+      const keyEvent = `keydown-${keyNames[index]}` as 'keydown-ONE' | 'keydown-TWO' | 'keydown-THREE' | 'keydown-FOUR' | 'keydown-FIVE' | 'keydown-SIX';
+      const handler = () => this.switchWeapon(weaponType as WeaponType);
+      
+      this.input.keyboard?.on(keyEvent, handler);
+      weaponHandlers.push({ event: keyEvent, callback: handler });
+    });
     
     this.input.keyboard?.on('keydown-LEFT', leftHandler);
     this.input.keyboard?.on('keydown-RIGHT', rightHandler);
     this.input.keyboard?.on('keydown-UP', upHandler);
     this.input.keyboard?.on('keydown-DOWN', downHandler);
     this.input.keyboard?.on('keydown-SPACE', spaceHandler);
-    this.input.keyboard?.on('keydown-ONE', weapon1Handler);
-    this.input.keyboard?.on('keydown-TWO', weapon2Handler);
-    this.input.keyboard?.on('keydown-THREE', weapon3Handler);
-    this.input.keyboard?.on('keydown-FOUR', weapon4Handler);
-    this.input.keyboard?.on('keydown-FIVE', weapon5Handler);
-    this.input.keyboard?.on('keydown-SIX', weapon6Handler);
     
     this.inputHandlers.push(
       { event: 'keydown-LEFT', callback: leftHandler },
@@ -522,12 +539,7 @@ export class GameScene extends Phaser.Scene {
       { event: 'keydown-UP', callback: upHandler },
       { event: 'keydown-DOWN', callback: downHandler },
       { event: 'keydown-SPACE', callback: spaceHandler },
-      { event: 'keydown-ONE', callback: weapon1Handler },
-      { event: 'keydown-TWO', callback: weapon2Handler },
-      { event: 'keydown-THREE', callback: weapon3Handler },
-      { event: 'keydown-FOUR', callback: weapon4Handler },
-      { event: 'keydown-FIVE', callback: weapon5Handler },
-      { event: 'keydown-SIX', callback: weapon6Handler }
+      ...weaponHandlers
     );
   }
 

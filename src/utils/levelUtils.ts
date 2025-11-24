@@ -1,4 +1,5 @@
 import { type ILevelConfig, TerrainBiome, TerrainShape } from '@/types';
+import { DEFAULT_WEAPONS_CONFIG } from '@/config/weapons';
 
 /**
  * Create random level configuration for solo and multiplayer modes
@@ -16,6 +17,7 @@ export function createRandomLevelConfig(): ILevelConfig {
     weather: weathers[Math.floor(Math.random() * weathers.length)],
     timeOfDay: times[Math.floor(Math.random() * times.length)],
     season: seasons[Math.floor(Math.random() * seasons.length)],
+    weaponsConfig: DEFAULT_WEAPONS_CONFIG,
   };
 }
 
