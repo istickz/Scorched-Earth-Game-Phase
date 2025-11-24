@@ -1,5 +1,5 @@
 import Phaser from 'phaser';
-import { GameMode, type AIDifficulty } from '@/types';
+import { GameMode, type AIDifficulty, type ILevelConfig } from '@/types';
 import { Tank } from '@/entities/Tank';
 import { ProgressManager } from '@/utils/ProgressManager';
 import { SINGLEPLAYER_LEVELS } from '@/config/levels';
@@ -265,7 +265,11 @@ export class GameOverSystem {
             sceneData.set('lobbyConnectionManager', this.lobbyConnectionManager);
           }
           sceneData.set('gameMode', this.gameMode);
-          sceneData.set('levelConfig', (this.scene as any).levelConfig);
+          // Get levelConfig from scene.data (it's already saved there in GameScene.init)
+          const levelConfig = sceneData.get('levelConfig') as ILevelConfig | undefined;
+          if (levelConfig) {
+            sceneData.set('levelConfig', levelConfig);
+          }
           sceneData.set('isHost', this.isHost);
           this.scene.scene.restart();
         };
@@ -357,7 +361,11 @@ export class GameOverSystem {
         sceneData.set('lobbyConnectionManager', this.lobbyConnectionManager);
       }
       sceneData.set('gameMode', this.gameMode);
-      sceneData.set('levelConfig', (this.scene as any).levelConfig);
+      // Get levelConfig from scene.data (it's already saved there in GameScene.init)
+      const levelConfig = sceneData.get('levelConfig') as ILevelConfig | undefined;
+      if (levelConfig) {
+        sceneData.set('levelConfig', levelConfig);
+      }
       sceneData.set('isHost', this.isHost);
       this.scene.scene.restart();
     }

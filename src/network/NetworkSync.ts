@@ -155,19 +155,19 @@ export class NetworkSync {
 
     switch (message.type) {
       case 'angle':
-        if (this.onAngleChange && typeof message.data === 'object' && 'angle' in message.data) {
+        if (this.onAngleChange && message.data && typeof message.data === 'object' && 'angle' in message.data) {
           this.onAngleChange(message.data.angle as number);
         }
         break;
 
       case 'power':
-        if (this.onPowerChange && typeof message.data === 'object' && 'power' in message.data) {
+        if (this.onPowerChange && message.data && typeof message.data === 'object' && 'power' in message.data) {
           this.onPowerChange(message.data.power as number);
         }
         break;
 
       case 'fire':
-        if (this.onFire && typeof message.data === 'object' && 'angle' in message.data && 'power' in message.data && 'weaponType' in message.data) {
+        if (this.onFire && message.data && typeof message.data === 'object' && 'angle' in message.data && 'power' in message.data && 'weaponType' in message.data) {
           this.onFire(
             message.data.angle as number,
             message.data.power as number,
@@ -177,19 +177,19 @@ export class NetworkSync {
         break;
 
       case 'shield':
-        if (this.onShield && typeof message.data === 'object' && 'shieldType' in message.data) {
+        if (this.onShield && message.data && typeof message.data === 'object' && 'shieldType' in message.data) {
           this.onShield(message.data.shieldType as string);
         }
         break;
 
       case 'weaponChange':
-        if (this.onWeaponChange && typeof message.data === 'object' && 'weaponType' in message.data) {
+        if (this.onWeaponChange && message.data && typeof message.data === 'object' && 'weaponType' in message.data) {
           this.onWeaponChange(message.data.weaponType as string);
         }
         break;
 
       case 'damage':
-        if (this.onDamage && typeof message.data === 'object' && 'tankIndex' in message.data && 'damage' in message.data) {
+        if (this.onDamage && message.data && typeof message.data === 'object' && 'tankIndex' in message.data && 'damage' in message.data) {
           this.onDamage(message.data as IDamageMessage);
         }
         break;
