@@ -8,6 +8,7 @@ import { ExplosionSystem } from '@/systems/ExplosionSystem';
 import { AISystem } from '@/systems/AISystem';
 import { WebRTCManager } from '@/network/WebRTCManager';
 import { NetworkSync } from '@/network/NetworkSync';
+import { LobbyConnectionManager } from '@/network/LobbyConnectionManager';
 import { AudioSystem } from '@/systems/AudioSystem';
 import { BiomeSystem } from '@/systems/BiomeSystem';
 import { WeatherSystem } from '@/systems/WeatherSystem';
@@ -39,10 +40,9 @@ export class GameScene extends Phaser.Scene {
   private lastShotData: Map<string, { angle: number; power: number; ownerId: string }> = new Map();
   private webrtcManager?: WebRTCManager;
   private networkSync?: NetworkSync;
+  private lobbyConnectionManager?: LobbyConnectionManager;
   // Track sent damage messages to prevent duplicates (host only)
   private sentDamageMessages: Set<string> = new Set();
-  // Track processed explosions to prevent duplicate processing (especially on client)
-  private processedExplosions: Set<string> = new Set();
   private audioSystem!: AudioSystem;
   private environmentEffects!: IEnvironmentEffects;
   
@@ -76,17 +76,36 @@ export class GameScene extends Phaser.Scene {
     levelConfig?: ILevelConfig;
     levelIndex?: number;
     isHost?: boolean;
+    lobbyConnectionManager?: LobbyConnectionManager;
   }): void {
-    this.gameMode = data?.gameMode || GameMode.Solo;
-    this.webrtcManager = data?.webrtcManager;
-    this.aiDifficulty = data?.aiDifficulty || 'medium';
-    this.isHost = data?.isHost ?? false;
+    // Try to get data from scene.data first (for restart), then from init data
+    const sceneData = this.data;
+    this.gameMode = data?.gameMode || sceneData.get('gameMode') || GameMode.Solo;
+    this.webrtcManager = data?.webrtcManager || sceneData.get('webrtcManager');
+    this.lobbyConnectionManager = data?.lobbyConnectionManager || sceneData.get('lobbyConnectionManager');
+    this.aiDifficulty = data?.aiDifficulty || sceneData.get('aiDifficulty') || 'medium';
+    this.isHost = data?.isHost ?? sceneData.get('isHost') ?? false;
     
     // Сохраняем конфигурацию уровня для использования в create()
-    this.levelConfig = data?.levelConfig;
+    this.levelConfig = data?.levelConfig || sceneData.get('levelConfig');
     
     // Сохраняем индекс уровня для singleplayer режима
-    this.currentLevelIndex = data?.levelIndex ?? 0;
+    this.currentLevelIndex = data?.levelIndex ?? sceneData.get('levelIndex') ?? 0;
+    
+    // Save data to scene.data for restart preservation
+    if (this.levelConfig) {
+      sceneData.set('levelConfig', this.levelConfig);
+    }
+    sceneData.set('gameMode', this.gameMode);
+    sceneData.set('aiDifficulty', this.aiDifficulty);
+    sceneData.set('levelIndex', this.currentLevelIndex);
+    if (this.webrtcManager) {
+      sceneData.set('webrtcManager', this.webrtcManager);
+    }
+    if (this.lobbyConnectionManager) {
+      sceneData.set('lobbyConnectionManager', this.lobbyConnectionManager);
+    }
+    sceneData.set('isHost', this.isHost);
     
     // Сбрасываем все игровые состояния при инициализации/перезапуске
     this.tanks = [];
@@ -94,7 +113,6 @@ export class GameScene extends Phaser.Scene {
     this.lastExplosionHit = null;
     this.lastShotData = new Map();
     this.sentDamageMessages.clear();
-    this.processedExplosions.clear();
   }
 
   create(): void {
@@ -215,7 +233,11 @@ export class GameScene extends Phaser.Scene {
       this.tanks,
       this.gameMode,
       this.aiDifficulty,
-      this.currentLevelIndex
+      this.currentLevelIndex,
+      this.isHost,
+      this.networkSync,
+      this.webrtcManager,
+      this.lobbyConnectionManager
     );
     
     this.trajectorySystem = new TrajectorySystem(this, this.tanks, this.terrainSystem, levelConfig.timeOfDay, levelConfig.biome);
@@ -359,6 +381,14 @@ export class GameScene extends Phaser.Scene {
       onDamage: (damageData) => {
         // Apply damage received from host (client only)
         this.applyDamageFromNetwork(damageData);
+      },
+      onRestart: () => {
+        // Handle restart message from host (client only)
+        this.gameOverSystem.handleRestart();
+      },
+      onReturnToLevelSelect: () => {
+        // Handle return to level select message from host (client only)
+        this.gameOverSystem.handleReturnToLevelSelect();
       },
       onWeaponChange: (weaponType: string) => {
         // Обрабатываем сообщения только когда ход удаленного игрока
@@ -801,26 +831,6 @@ export class GameScene extends Phaser.Scene {
   }
 
   private handleExplosion(data: { x: number; y: number; radius: number; damage: number; ownerId?: string }): void {
-    // Create unique key for this explosion to prevent duplicate processing
-    const explosionKey = `${Math.round(data.x)}_${Math.round(data.y)}_${data.ownerId || 'unknown'}_${data.damage}`;
-    
-    // Prevent duplicate explosion processing (especially important on client)
-    if (this.processedExplosions.has(explosionKey)) {
-      console.log(`[Explosion Handler] Ignoring duplicate explosion at (${Math.round(data.x)}, ${Math.round(data.y)}), ownerId: ${data.ownerId}`);
-      return;
-    }
-    
-    // Mark this explosion as processed
-    this.processedExplosions.add(explosionKey);
-    
-    // Clean up old explosion keys (keep only last 100 to prevent memory leak)
-    if (this.processedExplosions.size > 100) {
-      const keysArray = Array.from(this.processedExplosions);
-      this.processedExplosions.clear();
-      // Keep last 50 keys
-      keysArray.slice(-50).forEach(key => this.processedExplosions.add(key));
-    }
-    
     console.log(`[Explosion Handler] Processing explosion at (${Math.round(data.x)}, ${Math.round(data.y)}) with damage ${data.damage}, ownerId: ${data.ownerId}, gameMode: ${this.gameMode}, isHost: ${this.isHost}`);
     this.lastExplosionHit = { x: data.x, y: data.y };
 

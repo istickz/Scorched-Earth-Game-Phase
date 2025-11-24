@@ -12,6 +12,8 @@ export class NetworkSync {
   private onShield?: (shieldType: string) => void;
   private onWeaponChange?: (weaponType: string) => void;
   private onDamage?: (damageData: IDamageMessage) => void;
+  private onRestart?: () => void;
+  private onReturnToLevelSelect?: () => void;
   private lastSentAngle: number | null = null;
   private lastSentPower: number | null = null;
 
@@ -34,6 +36,8 @@ export class NetworkSync {
     onShield?: (shieldType: string) => void;
     onWeaponChange?: (weaponType: string) => void;
     onDamage?: (damageData: IDamageMessage) => void;
+    onRestart?: () => void;
+    onReturnToLevelSelect?: () => void;
   }): void {
     this.onAngleChange = callbacks.onAngleChange;
     this.onPowerChange = callbacks.onPowerChange;
@@ -41,6 +45,8 @@ export class NetworkSync {
     this.onShield = callbacks.onShield;
     this.onWeaponChange = callbacks.onWeaponChange;
     this.onDamage = callbacks.onDamage;
+    this.onRestart = callbacks.onRestart;
+    this.onReturnToLevelSelect = callbacks.onReturnToLevelSelect;
   }
 
   /**
@@ -114,10 +120,36 @@ export class NetworkSync {
   }
 
   /**
+   * Send restart message to remote player (host only)
+   */
+  public sendRestart(): void {
+    this.webrtcManager.sendMessage({
+      type: 'restart',
+      data: {},
+    });
+  }
+
+  /**
+   * Send return to level select message to remote player (host only)
+   */
+  public sendReturnToLevelSelect(): void {
+    this.webrtcManager.sendMessage({
+      type: 'returnToLevelSelect',
+      data: {},
+    });
+  }
+
+  /**
    * Handle incoming network message
    */
   private handleMessage(message: INetworkMessage): void {
-    if (!message.type || !message.data) {
+    if (!message.type) {
+      return;
+    }
+
+    // Some message types don't require data (restart, returnToLevelSelect, ping, pong)
+    const requiresData = ['angle', 'power', 'fire', 'shield', 'weaponChange', 'damage'].includes(message.type);
+    if (requiresData && !message.data) {
       return;
     }
 
@@ -162,6 +194,18 @@ export class NetworkSync {
         }
         break;
 
+      case 'restart':
+        if (this.onRestart) {
+          this.onRestart();
+        }
+        break;
+
+      case 'returnToLevelSelect':
+        if (this.onReturnToLevelSelect) {
+          this.onReturnToLevelSelect();
+        }
+        break;
+
       case 'ping':
         // Respond to ping with pong
         this.webrtcManager.sendMessage({ type: 'pong' });
@@ -169,6 +213,14 @@ export class NetworkSync {
 
       case 'pong':
         // Ping response received (could be used for latency measurement)
+        break;
+
+      case 'levelSelected':
+      case 'startGame':
+      case 'levelConfig':
+      case 'ready':
+        // These message types are handled by LobbyConnectionManager, not NetworkSync
+        // Silently ignore them to avoid warnings
         break;
 
       default:

@@ -28,6 +28,10 @@ export class LevelSelectScene extends Phaser.Scene {
   private isHost: boolean = false;
   private lobbyConnectionManager?: LobbyConnectionManager;
   private levelButtonContainers: Map<number, Phaser.GameObjects.Container> = new Map();
+  private waitingStatusText?: Phaser.GameObjects.Container;
+  // Store event handlers for proper cleanup
+  private levelSelectedHandler?: (levelIndex: number) => void;
+  private gameReadyHandler?: (levelConfig?: ILevelConfig) => void;
 
   constructor() {
     super({ key: 'LevelSelectScene' });
@@ -442,23 +446,47 @@ export class LevelSelectScene extends Phaser.Scene {
    */
   private setupMultiplayerSync(): void {
     if (!this.lobbyConnectionManager) {
+      console.warn('LevelSelectScene: Cannot setup multiplayer sync - lobbyConnectionManager is missing');
       return;
     }
 
-    // Listen for level selection from host
-    this.lobbyConnectionManager.on('levelSelected', (levelIndex: number) => {
+    console.log(`LevelSelectScene: Setting up multiplayer sync (isHost: ${this.isHost})`);
+
+    // Re-establish message handler to ensure LobbyConnectionManager receives messages
+    // This is important when returning from GameScene where NetworkSync was active
+    this.lobbyConnectionManager.reestablishMessageHandler();
+
+    // Clean up old handlers if they exist
+    if (this.levelSelectedHandler) {
+      this.lobbyConnectionManager.off('levelSelected', this.levelSelectedHandler);
+    }
+    if (this.gameReadyHandler) {
+      this.lobbyConnectionManager.off('gameReady', this.gameReadyHandler);
+    }
+
+    // Create new handlers
+    this.levelSelectedHandler = (levelIndex: number) => {
+      console.log(`LevelSelectScene: Received levelSelected event (isHost: ${this.isHost}, levelIndex: ${levelIndex})`);
       if (!this.isHost) {
         // Client receives level selection
         this.highlightSelectedLevel(levelIndex);
+        // Update waiting status
+        this.updateWaitingStatus('Host selected level. Starting game...');
       }
-    });
+    };
 
-    // Listen for game start signal
-    this.lobbyConnectionManager.on('gameReady', (levelConfig?: ILevelConfig) => {
+    this.gameReadyHandler = (levelConfig?: ILevelConfig) => {
+      console.log(`LevelSelectScene: Received gameReady event (isHost: ${this.isHost}, hasLevelConfig: ${!!levelConfig})`);
       if (levelConfig) {
+        // Hide waiting status before starting game
+        this.hideWaitingStatus();
         this.startMultiplayerGame(levelConfig);
       }
-    });
+    };
+
+    // Subscribe to events
+    this.lobbyConnectionManager.on('levelSelected', this.levelSelectedHandler);
+    this.lobbyConnectionManager.on('gameReady', this.gameReadyHandler);
 
     // Listen for connection state changes
     if (this.webrtcManager) {
@@ -550,9 +578,10 @@ export class LevelSelectScene extends Phaser.Scene {
   private createWaitingStatus(screenWidth: number, screenHeight: number): void {
     const statusY = screenHeight - 120;
     
+    this.waitingStatusText = this.add.container(0, 0);
     createTextWithShadow(
       this,
-      this.add.container(0, 0),
+      this.waitingStatusText,
       screenWidth / 2,
       statusY,
       'Waiting for host to select level...',
@@ -561,6 +590,39 @@ export class LevelSelectScene extends Phaser.Scene {
       0.5,
       0.5
     );
+  }
+
+  /**
+   * Hide waiting status (client only)
+   */
+  private hideWaitingStatus(): void {
+    if (this.waitingStatusText) {
+      this.waitingStatusText.setVisible(false);
+    }
+  }
+
+  /**
+   * Update waiting status text (client only)
+   */
+  private updateWaitingStatus(text: string): void {
+    if (this.waitingStatusText) {
+      // Clear existing text and create new
+      this.waitingStatusText.removeAll(true);
+      const screenWidth = this.cameras.main.width;
+      const screenHeight = this.cameras.main.height;
+      const statusY = screenHeight - 120;
+      createTextWithShadow(
+        this,
+        this.waitingStatusText,
+        screenWidth / 2,
+        statusY,
+        text,
+        20,
+        NESColors.white,
+        0.5,
+        0.5
+      );
+    }
   }
 
   /**
@@ -581,6 +643,7 @@ export class LevelSelectScene extends Phaser.Scene {
       webrtcManager: this.webrtcManager,
       isHost: this.isHost,
       levelConfig: levelConfig,
+      lobbyConnectionManager: this.lobbyConnectionManager,
     });
   }
 
@@ -621,8 +684,20 @@ export class LevelSelectScene extends Phaser.Scene {
     
     // Clean up multiplayer event listeners
     if (this.lobbyConnectionManager) {
-      this.lobbyConnectionManager.off('levelSelected');
-      this.lobbyConnectionManager.off('gameReady');
+      if (this.levelSelectedHandler) {
+        this.lobbyConnectionManager.off('levelSelected', this.levelSelectedHandler);
+        this.levelSelectedHandler = undefined;
+      }
+      if (this.gameReadyHandler) {
+        this.lobbyConnectionManager.off('gameReady', this.gameReadyHandler);
+        this.gameReadyHandler = undefined;
+      }
+    }
+    
+    // Clean up waiting status
+    if (this.waitingStatusText) {
+      this.waitingStatusText.destroy();
+      this.waitingStatusText = undefined;
     }
     
     // Stop menu music when leaving

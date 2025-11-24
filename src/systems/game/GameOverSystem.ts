@@ -3,6 +3,9 @@ import { GameMode, type AIDifficulty } from '@/types';
 import { Tank } from '@/entities/Tank';
 import { ProgressManager } from '@/utils/ProgressManager';
 import { SINGLEPLAYER_LEVELS } from '@/config/levels';
+import { type NetworkSync } from '@/network/NetworkSync';
+import { type WebRTCManager } from '@/network/WebRTCManager';
+import { type LobbyConnectionManager } from '@/network/LobbyConnectionManager';
 
 /**
  * Game Over System for handling game end conditions and UI
@@ -15,6 +18,10 @@ export class GameOverSystem {
   private currentLevelIndex: number;
   private gameOverShown: boolean = false;
   private waitingForProjectiles: boolean = false;
+  private isHost: boolean;
+  private networkSync?: NetworkSync;
+  private webrtcManager?: WebRTCManager;
+  private lobbyConnectionManager?: LobbyConnectionManager;
   
   // UI elements for cleanup
   private gameOverTexts: Phaser.GameObjects.BitmapText[] = [];
@@ -25,13 +32,21 @@ export class GameOverSystem {
     tanks: Tank[],
     gameMode: GameMode,
     aiDifficulty: AIDifficulty,
-    currentLevelIndex: number
+    currentLevelIndex: number,
+    isHost: boolean = false,
+    networkSync?: NetworkSync,
+    webrtcManager?: WebRTCManager,
+    lobbyConnectionManager?: LobbyConnectionManager
   ) {
     this.scene = scene;
     this.tanks = tanks;
     this.gameMode = gameMode;
     this.aiDifficulty = aiDifficulty;
     this.currentLevelIndex = currentLevelIndex;
+    this.isHost = isHost;
+    this.networkSync = networkSync;
+    this.webrtcManager = webrtcManager;
+    this.lobbyConnectionManager = lobbyConnectionManager;
   }
 
   /**
@@ -213,43 +228,154 @@ export class GameOverSystem {
     messageText.setOrigin(0.5);
     this.gameOverTexts.push(messageText);
 
-    // Press R text with shadow (bitmap font)
-    const restartShadow = this.scene.add.bitmapText(width / 2 + 2, height / 2 + 62, 'pixel-font', 'Press R to restart', 24);
-    restartShadow.setTintFill(0x000000);
-    restartShadow.setOrigin(0.5);
-    this.gameOverTexts.push(restartShadow);
+    // Handle multiplayer vs singleplayer/local modes
+    if (this.gameMode === GameMode.Multiplayer) {
+      if (this.isHost) {
+        // Host sees restart and return to menu options
+        const restartShadow = this.scene.add.bitmapText(width / 2 + 2, height / 2 + 62, 'pixel-font', 'Press R to restart', 24);
+        restartShadow.setTintFill(0x000000);
+        restartShadow.setOrigin(0.5);
+        this.gameOverTexts.push(restartShadow);
 
-    const restartText = this.scene.add.bitmapText(width / 2, height / 2 + 60, 'pixel-font', 'Press R to restart', 24);
-    restartText.setTintFill(0xffffff);
-    restartText.setOrigin(0.5);
-    this.gameOverTexts.push(restartText);
+        const restartText = this.scene.add.bitmapText(width / 2, height / 2 + 60, 'pixel-font', 'Press R to restart', 24);
+        restartText.setTintFill(0xffffff);
+        restartText.setOrigin(0.5);
+        this.gameOverTexts.push(restartText);
 
-    // For singleplayer, also show option to return to menu
-    if (this.gameMode === GameMode.Solo) {
-      const menuShadow = this.scene.add.bitmapText(width / 2 + 2, height / 2 + 92 + 2, 'pixel-font', 'Press M to return to menu', 20);
-      menuShadow.setTintFill(0x000000);
-      menuShadow.setOrigin(0.5);
-      this.gameOverTexts.push(menuShadow);
+        const menuShadow = this.scene.add.bitmapText(width / 2 + 2, height / 2 + 92 + 2, 'pixel-font', 'Press M to return to level select', 20);
+        menuShadow.setTintFill(0x000000);
+        menuShadow.setOrigin(0.5);
+        this.gameOverTexts.push(menuShadow);
 
-      const menuText = this.scene.add.bitmapText(width / 2, height / 2 + 92, 'pixel-font', 'Press M to return to menu', 20);
-      menuText.setTintFill(0xaaaaaa);
-      menuText.setOrigin(0.5);
-      this.gameOverTexts.push(menuText);
+        const menuText = this.scene.add.bitmapText(width / 2, height / 2 + 92, 'pixel-font', 'Press M to return to level select', 20);
+        menuText.setTintFill(0xaaaaaa);
+        menuText.setOrigin(0.5);
+        this.gameOverTexts.push(menuText);
 
-      const mHandler = () => {
-        this.scene.scene.start('MenuScene');
+        const rHandler = () => {
+          if (this.networkSync) {
+            this.networkSync.sendRestart();
+          }
+          // Save data to scene.data before restart to preserve it
+          const sceneData = this.scene.data;
+          if (this.webrtcManager) {
+            sceneData.set('webrtcManager', this.webrtcManager);
+          }
+          if (this.lobbyConnectionManager) {
+            sceneData.set('lobbyConnectionManager', this.lobbyConnectionManager);
+          }
+          sceneData.set('gameMode', this.gameMode);
+          sceneData.set('levelConfig', (this.scene as any).levelConfig);
+          sceneData.set('isHost', this.isHost);
+          this.scene.scene.restart();
+        };
+
+        const mHandler = () => {
+          if (this.networkSync) {
+            this.networkSync.sendReturnToLevelSelect();
+          }
+          // Navigate to LevelSelectScene with webrtcManager, lobbyConnectionManager and gameMode
+          if (this.webrtcManager) {
+            this.scene.scene.start('LevelSelectScene', {
+              gameMode: GameMode.Multiplayer,
+              webrtcManager: this.webrtcManager,
+              isHost: true,
+              lobbyConnectionManager: this.lobbyConnectionManager,
+            });
+          }
+        };
+
+        this.scene.input.keyboard?.once('keydown-R', rHandler);
+        this.scene.input.keyboard?.once('keydown-M', mHandler);
+        this.inputHandlers.push({ event: 'keydown-R', callback: rHandler });
+        this.inputHandlers.push({ event: 'keydown-M', callback: mHandler });
+      } else {
+        // Client sees waiting message
+        const waitingShadow = this.scene.add.bitmapText(width / 2 + 2, height / 2 + 62, 'pixel-font', 'Waiting for host...', 24);
+        waitingShadow.setTintFill(0x000000);
+        waitingShadow.setOrigin(0.5);
+        this.gameOverTexts.push(waitingShadow);
+
+        const waitingText = this.scene.add.bitmapText(width / 2, height / 2 + 60, 'pixel-font', 'Waiting for host...', 24);
+        waitingText.setTintFill(0xaaaaaa);
+        waitingText.setOrigin(0.5);
+        this.gameOverTexts.push(waitingText);
+        // No input handlers for client
+      }
+    } else {
+      // Singleplayer or local mode - show restart option
+      const restartShadow = this.scene.add.bitmapText(width / 2 + 2, height / 2 + 62, 'pixel-font', 'Press R to restart', 24);
+      restartShadow.setTintFill(0x000000);
+      restartShadow.setOrigin(0.5);
+      this.gameOverTexts.push(restartShadow);
+
+      const restartText = this.scene.add.bitmapText(width / 2, height / 2 + 60, 'pixel-font', 'Press R to restart', 24);
+      restartText.setTintFill(0xffffff);
+      restartText.setOrigin(0.5);
+      this.gameOverTexts.push(restartText);
+
+      // For singleplayer, also show option to return to menu
+      if (this.gameMode === GameMode.Solo) {
+        const menuShadow = this.scene.add.bitmapText(width / 2 + 2, height / 2 + 92 + 2, 'pixel-font', 'Press M to return to menu', 20);
+        menuShadow.setTintFill(0x000000);
+        menuShadow.setOrigin(0.5);
+        this.gameOverTexts.push(menuShadow);
+
+        const menuText = this.scene.add.bitmapText(width / 2, height / 2 + 92, 'pixel-font', 'Press M to return to menu', 20);
+        menuText.setTintFill(0xaaaaaa);
+        menuText.setOrigin(0.5);
+        this.gameOverTexts.push(menuText);
+
+        const mHandler = () => {
+          this.scene.scene.start('MenuScene');
+        };
+        
+        this.scene.input.keyboard?.once('keydown-M', mHandler);
+        this.inputHandlers.push({ event: 'keydown-M', callback: mHandler });
+      }
+
+      const rHandler = () => {
+        this.scene.scene.restart();
       };
       
-      this.scene.input.keyboard?.once('keydown-M', mHandler);
-      this.inputHandlers.push({ event: 'keydown-M', callback: mHandler });
+      this.scene.input.keyboard?.once('keydown-R', rHandler);
+      this.inputHandlers.push({ event: 'keydown-R', callback: rHandler });
     }
+  }
 
-    const rHandler = () => {
+  /**
+   * Handle restart message from host (client only)
+   */
+  public handleRestart(): void {
+    if (this.gameMode === GameMode.Multiplayer && !this.isHost) {
+      // Save data to scene.data before restart to preserve it
+      const sceneData = this.scene.data;
+      if (this.webrtcManager) {
+        sceneData.set('webrtcManager', this.webrtcManager);
+      }
+      if (this.lobbyConnectionManager) {
+        sceneData.set('lobbyConnectionManager', this.lobbyConnectionManager);
+      }
+      sceneData.set('gameMode', this.gameMode);
+      sceneData.set('levelConfig', (this.scene as any).levelConfig);
+      sceneData.set('isHost', this.isHost);
       this.scene.scene.restart();
-    };
-    
-    this.scene.input.keyboard?.once('keydown-R', rHandler);
-    this.inputHandlers.push({ event: 'keydown-R', callback: rHandler });
+    }
+  }
+
+  /**
+   * Handle return to level select message from host (client only)
+   */
+  public handleReturnToLevelSelect(): void {
+    if (this.gameMode === GameMode.Multiplayer && !this.isHost && this.webrtcManager) {
+      // Client also returns to LevelSelectScene to see host's level selection
+      this.scene.scene.start('LevelSelectScene', {
+        gameMode: GameMode.Multiplayer,
+        webrtcManager: this.webrtcManager,
+        isHost: false,
+        lobbyConnectionManager: this.lobbyConnectionManager,
+      });
+    }
   }
 
   /**
