@@ -21,9 +21,17 @@ export class UISystem {
   private infoPanel!: Phaser.GameObjects.Container;
   private weaponsPanelLeft!: Phaser.GameObjects.Container;
   private weaponsPanelRight!: Phaser.GameObjects.Container;
+  private availableWeapons: string[] = [];
 
   constructor(scene: Phaser.Scene) {
     this.scene = scene;
+  }
+
+  /**
+   * Set available weapons list from level config
+   */
+  public setAvailableWeapons(weapons: string[]): void {
+    this.availableWeapons = weapons;
   }
 
   /**
@@ -130,11 +138,11 @@ export class UISystem {
       return;
     }
 
-    let modeText = 'Singleplayer';
+    let modeText = '1 Player';
     if (gameMode === GameMode.Multiplayer) {
-      modeText = 'P2P Multiplayer';
+      modeText = 'Multiplayer';
     } else if (gameMode === GameMode.Local) {
-      modeText = 'Local Multiplayer';
+      modeText = '2 Players';
     }
     
     // Add level number for singleplayer mode
@@ -179,7 +187,7 @@ export class UISystem {
     weaponTexts: { text: Phaser.GameObjects.BitmapText; shadow: Phaser.GameObjects.BitmapText }[],
     isRightPanel: boolean = false
   ): void {
-    const weapons = [
+    const weapons = this.availableWeapons.length > 0 ? this.availableWeapons : [
       'standard', 
       'salvo', 
       'hazelnut', 
@@ -188,6 +196,18 @@ export class UISystem {
       'shield_multi_use'
     ];
     const currentWeapon = currentTank.getWeapon();
+    
+    // Hide/show weapon panels based on available weapons
+    for (let i = 0; i < weaponTexts.length; i++) {
+      const weaponUI = weaponTexts[i];
+      if (i < weapons.length) {
+        weaponUI.text.setVisible(true);
+        weaponUI.shadow.setVisible(true);
+      } else {
+        weaponUI.text.setVisible(false);
+        weaponUI.shadow.setVisible(false);
+      }
+    }
     
     weapons.forEach((weapon, index) => {
       let name: string;
@@ -206,7 +226,7 @@ export class UISystem {
         ammo = currentTank.getAmmo(weapon);
       }
       
-      const ammoText = ammo === -1 ? '∞' : `x${ammo}`;
+      const ammoText = ammo === -1 ? 'INF' : `x${ammo}`;
       const isCurrent = weapon === currentWeapon;
       const hasAmmo = ammo === -1 || ammo > 0;
       

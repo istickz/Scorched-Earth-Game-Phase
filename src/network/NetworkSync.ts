@@ -1,4 +1,4 @@
-import { type INetworkMessage } from '@/types';
+import { type INetworkMessage, type IDamageMessage } from '@/types';
 import { WebRTCManager } from './WebRTCManager';
 
 /**
@@ -8,7 +8,10 @@ export class NetworkSync {
   private webrtcManager: WebRTCManager;
   private onAngleChange?: (angle: number) => void;
   private onPowerChange?: (power: number) => void;
-  private onFire?: (angle: number, power: number) => void;
+  private onFire?: (angle: number, power: number, weaponType: string) => void;
+  private onShield?: (shieldType: string) => void;
+  private onWeaponChange?: (weaponType: string) => void;
+  private onDamage?: (damageData: IDamageMessage) => void;
   private lastSentAngle: number | null = null;
   private lastSentPower: number | null = null;
 
@@ -27,11 +30,17 @@ export class NetworkSync {
   public setCallbacks(callbacks: {
     onAngleChange?: (angle: number) => void;
     onPowerChange?: (power: number) => void;
-    onFire?: (angle: number, power: number) => void;
+    onFire?: (angle: number, power: number, weaponType: string) => void;
+    onShield?: (shieldType: string) => void;
+    onWeaponChange?: (weaponType: string) => void;
+    onDamage?: (damageData: IDamageMessage) => void;
   }): void {
     this.onAngleChange = callbacks.onAngleChange;
     this.onPowerChange = callbacks.onPowerChange;
     this.onFire = callbacks.onFire;
+    this.onShield = callbacks.onShield;
+    this.onWeaponChange = callbacks.onWeaponChange;
+    this.onDamage = callbacks.onDamage;
   }
 
   /**
@@ -65,13 +74,43 @@ export class NetworkSync {
   /**
    * Send fire command to remote player
    */
-  public sendFire(angle: number, power: number): void {
+  public sendFire(angle: number, power: number, weaponType: string): void {
     this.webrtcManager.sendMessage({
       type: 'fire',
-      data: { angle, power },
+      data: { angle, power, weaponType },
     });
     this.lastSentAngle = angle;
     this.lastSentPower = power;
+  }
+
+  /**
+   * Send shield activation to remote player
+   */
+  public sendShield(shieldType: string): void {
+    this.webrtcManager.sendMessage({
+      type: 'shield',
+      data: { shieldType },
+    });
+  }
+
+  /**
+   * Send weapon change to remote player
+   */
+  public sendWeaponChange(weaponType: string): void {
+    this.webrtcManager.sendMessage({
+      type: 'weaponChange',
+      data: { weaponType },
+    });
+  }
+
+  /**
+   * Send damage message to remote player (host only)
+   */
+  public sendDamage(damageData: IDamageMessage): void {
+    this.webrtcManager.sendMessage({
+      type: 'damage',
+      data: damageData,
+    });
   }
 
   /**
@@ -96,8 +135,30 @@ export class NetworkSync {
         break;
 
       case 'fire':
-        if (this.onFire && typeof message.data === 'object' && 'angle' in message.data && 'power' in message.data) {
-          this.onFire(message.data.angle as number, message.data.power as number);
+        if (this.onFire && typeof message.data === 'object' && 'angle' in message.data && 'power' in message.data && 'weaponType' in message.data) {
+          this.onFire(
+            message.data.angle as number,
+            message.data.power as number,
+            message.data.weaponType as string
+          );
+        }
+        break;
+
+      case 'shield':
+        if (this.onShield && typeof message.data === 'object' && 'shieldType' in message.data) {
+          this.onShield(message.data.shieldType as string);
+        }
+        break;
+
+      case 'weaponChange':
+        if (this.onWeaponChange && typeof message.data === 'object' && 'weaponType' in message.data) {
+          this.onWeaponChange(message.data.weaponType as string);
+        }
+        break;
+
+      case 'damage':
+        if (this.onDamage && typeof message.data === 'object' && 'tankIndex' in message.data && 'damage' in message.data) {
+          this.onDamage(message.data as IDamageMessage);
         }
         break;
 

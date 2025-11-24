@@ -18,6 +18,7 @@ import {
   NESTheme,
 } from '@/utils/NESUI';
 import { AudioSystem } from '@/systems/AudioSystem';
+import { DEFAULT_WEAPONS_CONFIG } from '@/config/weapons';
 
 /**
  * Level configuration scene with modular biome/terrain system
@@ -29,6 +30,7 @@ export class LevelEditorScene extends Phaser.Scene {
     weather: 'none',
     timeOfDay: 'day',
     season: 'summer',
+    weaponsConfig: DEFAULT_WEAPONS_CONFIG,
   };
 
   private previewRenderer!: PreviewRenderer;
@@ -71,15 +73,15 @@ export class LevelEditorScene extends Phaser.Scene {
     this.createNESTitle(screenWidth, screenHeight, nesRed, nesYellow, nesWhite);
 
     // Add spacing after title
-    const titleBottomY = 100 + 55 + 20; // titleY (100) + subtitle height (55) + spacing (20)
-    const containerTopY = titleBottomY + 40; // Additional spacing before container (increased to lower container)
+    const titleBottomY = 100 + 55 + 15; // titleY (100) + subtitle height (55) + spacing (reduced from 20 to 15)
+    const containerTopY = titleBottomY + 30; // Reduced from 40
 
     // Adaptive layout with max width for large screens
     const MAX_CONTENT_WIDTH = 1600;
     const contentWidth = Math.min(screenWidth * 0.90, MAX_CONTENT_WIDTH);
 
     // Calculate container dimensions
-    const containerPadding = 60; // Increased padding for better visual spacing
+    const containerPadding = 50; // Reduced from 60 for more compact layout
     
     // Calculate available width inside container (accounting for padding)
     const availableWidth = contentWidth - containerPadding * 2;
@@ -91,14 +93,21 @@ export class LevelEditorScene extends Phaser.Scene {
     const gap = availableWidth * 0.05;
     
     // Calculate positions relative to container top (starting from padding)
-    const titleOffsetY = 30; // Space for section titles
+    const titleOffsetY = 25; // Space for section titles (reduced from 30)
     const contentStartY = containerPadding + titleOffsetY;
-    const previewHeight = 420;
-    const environmentBoxHeight = 200;
-    const environmentBottomY = contentStartY + previewHeight + 30 + environmentBoxHeight; // Environment section bottom
-    const modifiersStartY = contentStartY + 250;
-    const buttonsStartY = modifiersStartY + 400; // Start button (increased due to added terrain height sliders)
-    const backButtonY = buttonsStartY + 60;
+    const previewHeight = 350; // Reduced from 420
+    const biomeButtonsHeight = 190; // Height for 2 rows of biome buttons (2 * 85 + 15 spacing)
+    const environmentBoxHeight = 180; // Reduced from 200
+    // Left side: preview -> biomes -> environment
+    const biomesStartY = contentStartY + previewHeight + 20; // Under preview
+    const environmentStartY = biomesStartY + biomeButtonsHeight + 20; // Under biomes
+    const environmentBottomY = environmentStartY + environmentBoxHeight; // Environment section bottom
+    // Right side: modifiers -> weapons -> buttons
+    const modifiersStartY = contentStartY; // Start at same height as preview (biomes moved to left)
+    const weaponsStartY = modifiersStartY + 320; // Reduced from 400
+    // Weapons section: title (25px) + 6 rows * 35px = ~235px, add extra spacing
+    const buttonsStartY = weaponsStartY + 280; // Increased from 240 to add more space between weapons and buttons
+    const backButtonY = buttonsStartY + 50; // Reduced from 60
     
     // Calculate required container height based on bottom-most element
     // Consider both Environment section (left) and buttons (right)
@@ -126,9 +135,12 @@ export class LevelEditorScene extends Phaser.Scene {
     
     // Title height offset (both titles should be at same height) - already defined above
     const contentStartYRelative = -containerHeight / 2 + containerPadding + titleOffsetY;
-    const modifiersStartYRelative = contentStartYRelative + 250;
-    const buttonsStartYRelative = modifiersStartYRelative + 400; // Start button (increased due to added terrain height sliders)
-    const backButtonYRelative = buttonsStartYRelative + 60;
+    const biomesStartYRelative = contentStartYRelative + previewHeight + 20; // Under preview
+    const environmentStartYRelative = biomesStartYRelative + biomeButtonsHeight + 20; // Under biomes
+    const modifiersStartYRelative = contentStartYRelative; // Start at same height as preview (biomes moved to left)
+    const weaponsStartYRelative = modifiersStartYRelative + 320; // Reduced from 400
+    const buttonsStartYRelative = weaponsStartYRelative + 280; // Increased from 240 to add more space between weapons and buttons
+    const backButtonYRelative = buttonsStartYRelative + 50; // Reduced from 60
 
     // Create "Random All" button attached to right edge of container
     const randomButtonHeight = 45;
@@ -141,16 +153,19 @@ export class LevelEditorScene extends Phaser.Scene {
     this.createRandomAllButton(randomButtonX, randomButtonY, randomButtonWidth, randomButtonHeight);
 
     // Create preview on the left (y position includes space for title)
-    this.createPreview(previewX, contentStartYRelative, previewWidth, previewHeight, titleOffsetY);
+    this.createPreview(previewX, contentStartYRelative, previewWidth, previewHeight);
     
-    // Create environment info below preview (with bottom padding)
-    this.createEnvironmentInfo(previewX, contentStartYRelative + previewHeight + 30, previewWidth);
+    // Create biome selection buttons under preview on the left (2 rows, 2 columns)
+    this.createBiomeButtons(previewX, biomesStartYRelative, previewWidth);
+    
+    // Create environment info below biomes on the left
+    this.createEnvironmentInfo(previewX, environmentStartYRelative, previewWidth);
 
-    // Create biome selection buttons on the right (2 rows, 2 columns)
-    this.createBiomeButtons(actualControlsX, contentStartYRelative, controlsWidth, titleOffsetY);
-
-    // Create modifiers section on the right below biomes
+    // Create modifiers section on the right (starts at same height as preview)
     this.createModifiersSection(actualControlsX, modifiersStartYRelative, controlsWidth);
+
+    // Create weapons section on the right below modifiers
+    this.createWeaponsSection(actualControlsX, weaponsStartYRelative, controlsWidth);
 
     // Calculate buttons position
     const buttonsCenterX = actualControlsX + controlsWidth / 2;
@@ -205,7 +220,7 @@ export class LevelEditorScene extends Phaser.Scene {
       titleContainer,
       width / 2,
       titleY + 55,
-      'Local Multiplayer - Configure Battle',
+      'Level Editor - Configure Battle',
       14,
       NESColors.yellow,
       0.5,
@@ -216,7 +231,7 @@ export class LevelEditorScene extends Phaser.Scene {
   /**
    * Create biome selection buttons (2 rows, 2 columns)
    */
-  private createBiomeButtons(startX: number, startY: number, availableWidth: number, titleOffsetY: number = 30): void {
+  private createBiomeButtons(startX: number, startY: number, availableWidth: number): void {
     const biomes = [
       TerrainBiome.TEMPERATE,
       TerrainBiome.DESERT,
@@ -224,14 +239,10 @@ export class LevelEditorScene extends Phaser.Scene {
       TerrainBiome.VOLCANIC,
     ];
 
-    const buttonWidth = (availableWidth - 20) / 2; // 2 columns, 20px spacing
-    const buttonHeight = 100;
-    const spacing = 20;
+    const buttonWidth = (availableWidth - 15) / 2; // 2 columns, 15px spacing (reduced from 20)
+    const buttonHeight = 85; // Reduced from 100
+    const spacing = 15; // Reduced from 20
     const cols = 2;
-
-    // Title for biomes section (positioned at same height as Preview title)
-    const titleY = startY - titleOffsetY;
-    createSectionTitle(this, this.contentContainer, startX + availableWidth / 2, titleY, 'BIOMES', 16);
 
     // Вычисляем центры кнопок (не левые верхние углы!)
     // startX и startY - это позиция левого верхнего угла первой кнопки
@@ -265,9 +276,9 @@ export class LevelEditorScene extends Phaser.Scene {
     const container = this.add.container(x, y);
 
     // Pixel art icon - positioned relative to container
-    const iconSize = 32;
+    const iconSize = 28; // Reduced from 32
     const iconX = width / 2;
-    const iconY = 30;
+    const iconY = 25; // Reduced from 30
     
     const icon = PixelIconGenerator.createBiomeIcon(this, biome, iconX, iconY, iconSize);
 
@@ -307,8 +318,8 @@ export class LevelEditorScene extends Phaser.Scene {
     // Section title with NES style
     createSectionTitle(this, this.contentContainer, sectionCenterX, startY, 'MODIFIERS', 16);
 
-    // Одинаковый отступ между всеми строками
-    const rowSpacing = 50;
+    // Одинаковый отступ между всеми строками (reduced from 50 to 40)
+    const rowSpacing = 40;
     const row1Y = startY + rowSpacing;
     const row2Y = startY + rowSpacing * 2;
     const row3Y = startY + rowSpacing * 3;
@@ -427,6 +438,157 @@ export class LevelEditorScene extends Phaser.Scene {
   }
 
   /**
+   * Create weapons configuration section
+   */
+  private createWeaponsSection(startX: number, startY: number, availableWidth: number): void {
+    const sectionCenterX = startX + availableWidth / 2;
+
+    // Section title with NES style
+    createSectionTitle(this, this.contentContainer, sectionCenterX, startY, 'WEAPONS', 16);
+
+    // Weapon types with display names
+    const weaponTypes = [
+      { key: 'standard', label: 'Standard' },
+      { key: 'salvo', label: 'Salvo' },
+      { key: 'hazelnut', label: 'Hazelnut' },
+      { key: 'bouncing', label: 'Bouncing' },
+      { key: 'shield_single_use', label: 'Shield (1x)' },
+      { key: 'shield_multi_use', label: 'Shield (Multi)' },
+    ];
+
+    const rowSpacing = 35; // Reduced from 40
+    const labelGap = 12; // Reduced from 15
+    const buttonSpacing = 8; // Reduced from 10
+    const buttonWidth = 30; // Reduced from 32
+    const buttonHeight = 22; // Reduced from 24
+
+    // Initialize weaponsConfig if not present
+    if (!this.levelConfig.weaponsConfig) {
+      this.levelConfig.weaponsConfig = { ...DEFAULT_WEAPONS_CONFIG };
+    }
+
+    weaponTypes.forEach((weapon, index) => {
+      const rowY = startY + rowSpacing * (index + 1);
+      const weaponKey = weapon.key;
+      const currentAmmo = this.levelConfig.weaponsConfig.ammunition[weaponKey] ?? 0;
+
+      // Weapon label
+      const labelText = this.add.bitmapText(
+        startX,
+        rowY,
+        'pixel-font',
+        weapon.label,
+        NESTheme.defaultFontSize
+      );
+      labelText.setTintFill(NESColors.white);
+      labelText.setOrigin(0, 0.5);
+      this.contentContainer.add(labelText);
+
+      // Calculate value position
+      const tempLabelText = this.add.bitmapText(0, 0, 'pixel-font', weapon.label, NESTheme.defaultFontSize);
+      const labelWidth = tempLabelText.width;
+      tempLabelText.destroy();
+
+      const valueX = startX + labelWidth + labelGap;
+      
+      // Display value (ammo count or infinity)
+      const displayValue = currentAmmo === -1 ? 'INF' : currentAmmo.toString();
+      
+      // Calculate max width for value display (use "INF" or "50" - whichever is wider)
+      // This ensures buttons stay in fixed position regardless of current value
+      const tempInfText = this.add.bitmapText(0, 0, 'pixel-font', 'INF', 14);
+      const tempMaxNumText = this.add.bitmapText(0, 0, 'pixel-font', '50', 14);
+      const maxValueWidth = Math.max(tempInfText.width, tempMaxNumText.width);
+      tempInfText.destroy();
+      tempMaxNumText.destroy();
+
+      // Position value text at right edge of reserved space (right-aligned)
+      // This ensures "INF" and numbers align to the same right edge
+      const valueTextX = valueX + maxValueWidth;
+      const { shadow: valueShadow, text: valueText } = createTextWithShadow(
+        this,
+        this.contentContainer,
+        valueTextX,
+        rowY,
+        displayValue,
+        14,
+        NESColors.yellow,
+        1,
+        0.5
+      );
+
+      // Update function for value display
+      const updateDisplay = () => {
+        const ammo = this.levelConfig.weaponsConfig.ammunition[weaponKey] ?? 0;
+        const display = ammo === -1 ? 'INF' : ammo.toString();
+        valueText.setText(display);
+        valueShadow.setText(display);
+        // Ensure color stays yellow (not gray)
+        valueText.setTintFill(NESColors.yellow);
+        valueShadow.setTintFill(NESColors.black);
+      };
+
+      // Button "-" for decreasing ammo (cyclic: -1 -> 50 -> 49 -> ... -> 1 -> 0 -> -1)
+      // Use max width to ensure buttons stay in fixed position regardless of current value
+      const gapAfterValue = 30;
+      const minusButtonX = valueX + maxValueWidth + gapAfterValue;
+      createNESButton(
+        this,
+        this.contentContainer,
+        {
+          x: minusButtonX,
+          y: rowY,
+          width: buttonWidth,
+          height: buttonHeight,
+          text: '-',
+          onClick: () => {
+            const ammo = this.levelConfig.weaponsConfig.ammunition[weaponKey] ?? 0;
+            if (ammo === -1) {
+              // From infinite, go to 50
+              this.levelConfig.weaponsConfig.ammunition[weaponKey] = 50;
+            } else if (ammo > 0) {
+              // Decrease by 1
+              this.levelConfig.weaponsConfig.ammunition[weaponKey] = ammo - 1;
+            } else if (ammo === 0) {
+              // From 0, go to infinite (-1)
+              this.levelConfig.weaponsConfig.ammunition[weaponKey] = -1;
+            }
+            updateDisplay();
+          },
+        }
+      );
+
+      // Button "+" for increasing ammo (cyclic: 0 -> 1 -> ... -> 49 -> 50 -> -1 -> 0)
+      const plusButtonX = minusButtonX + buttonWidth + buttonSpacing;
+      createNESButton(
+        this,
+        this.contentContainer,
+        {
+          x: plusButtonX,
+          y: rowY,
+          width: buttonWidth,
+          height: buttonHeight,
+          text: '+',
+          onClick: () => {
+            const ammo = this.levelConfig.weaponsConfig.ammunition[weaponKey] ?? 0;
+            if (ammo === -1) {
+              // From infinite, go to 0
+              this.levelConfig.weaponsConfig.ammunition[weaponKey] = 0;
+            } else if (ammo >= 0 && ammo < 50) {
+              // Increase by 1
+              this.levelConfig.weaponsConfig.ammunition[weaponKey] = ammo + 1;
+            } else if (ammo === 50) {
+              // From 50, go to infinite (-1)
+              this.levelConfig.weaponsConfig.ammunition[weaponKey] = -1;
+            }
+            updateDisplay();
+          },
+        }
+      );
+    });
+  }
+
+  /**
    * Create a slider for terrain height parameter
    */
   private createTerrainHeightSlider(
@@ -483,12 +645,7 @@ export class LevelEditorScene extends Phaser.Scene {
   /**
    * Create preview window (left side)
    */
-  private createPreview(x: number, y: number, width: number, height: number, titleOffsetY: number = 30): void {
-    // Preview label with NES style (positioned above the preview box)
-    const labelX = x + width / 2;
-    const titleY = y - titleOffsetY;
-    createSectionTitle(this, this.contentContainer, labelX, titleY, 'PREVIEW', 16);
-
+  private createPreview(x: number, y: number, width: number, height: number): void {
     // Preview border with NES style
     const previewBorder = this.add.graphics();
     previewBorder.lineStyle(3, 0x3498db, 1);
@@ -522,8 +679,8 @@ export class LevelEditorScene extends Phaser.Scene {
    * Create environment info display below preview with editable fields and internal padding
    */
   private createEnvironmentInfo(x: number, y: number, width: number): void {
-    const boxHeight = 240;
-    const padding = 25; // ← Внутренний отступ!
+    const boxHeight = 180; // Reduced from 240
+    const padding = 20; // Reduced from 25
 
     // Создаём панель с паддингом — она сама нарисует красивый фон и бордер
     // x и y - это левый верхний угол, нужно преобразовать в центр
@@ -537,10 +694,6 @@ export class LevelEditorScene extends Phaser.Scene {
       height: boxHeight,
       padding,           // ← вот он, твой внутренний отступ!
     });
-
-    // Заголовок — уже внутри панели, с отступом
-    // Координаты относительно центра панели (0, 0)
-    createSectionTitle(this, panel.container, 0, -boxHeight / 2 + padding, 'ENVIRONMENT', 14);
 
     // Получаем дефолтные эффекты
     const defaultEffects = EnvironmentSystem.getEffects(
@@ -569,8 +722,8 @@ export class LevelEditorScene extends Phaser.Scene {
     // на основе позиции начала (после label) и фиксированной позиции конца
 
     // Начало контента — с учётом паддинга (относительно центра панели)
-    const startY = -boxHeight / 2 + padding + 30;
-    const spacing = 32;
+    const startY = -boxHeight / 2 + padding + 25; // Reduced from 30
+    const spacing = 28; // Reduced from 32
     const inputX = -width / 2 + padding;
 
     // Все слайдеры теперь внутри panel.container

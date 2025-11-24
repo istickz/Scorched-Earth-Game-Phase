@@ -48,6 +48,7 @@ export class ExplosionSystem {
     this.createExplosionParticles(x, y, radius, weaponType, explosionColor);
 
     // Emit explosion event for damage calculation (needed immediately for tank damage)
+    console.log(`[ExplosionSystem] Emitting explosion event at (${Math.round(x)}, ${Math.round(y)}) with damage ${damage}, ownerId: ${ownerId}`);
     this.scene.events.emit('explosion', { x, y, radius, damage, ownerId });
 
     // With optimized partial redraw, terrain destruction is now fast enough to do synchronously

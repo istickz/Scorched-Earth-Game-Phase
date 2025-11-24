@@ -527,9 +527,9 @@ export class AISystem {
     callback: (angle: number, power: number) => void,
     shieldCallback?: (shieldType: string) => void
   ): Promise<void> {
-    // Minimal thinking time - constant for all difficulties
+    // Thinking time - constant for all difficulties
     // Difficulty affects accuracy, not reaction speed
-    const thinkTime = 50;
+    const thinkTime = 1500; // 1.5 seconds delay before AI fires
 
     // Check if AI should activate shield instead of firing
     const shouldUseShield = this.shouldActivateShield(aiTank, targetTank);

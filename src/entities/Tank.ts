@@ -25,14 +25,7 @@ export class Tank extends Phaser.GameObjects.Container {
   private power: number = 50; // 0-200
   private weaponType: string = 'standard'; // Current weapon type
   // Ammunition system: standard is infinite (-1), others are limited
-  private ammunition: Map<string, number> = new Map([
-    ['standard', -1],  // -1 means infinite
-    ['salvo', 3],      // 3 salvos
-    ['hazelnut', 3],   // 3 hazelnuts
-    ['bouncing', 3],   // 3 bouncing shells
-    ['shield_single_use', 2],  // 2 single-use shields
-    ['shield_multi_use', 1],  // 1 multi-use shield
-  ]);
+  private ammunition: Map<string, number>;
   
   // Active shield
   private activeShield: Shield | null = null;
@@ -44,9 +37,12 @@ export class Tank extends Phaser.GameObjects.Container {
   private barrelWidth: number = 6;
   private isStatic: boolean = true; // Start as static (standing on ground)
 
-  constructor(scene: Phaser.Scene, config: ITankConfig) {
+  constructor(scene: Phaser.Scene, config: ITankConfig, ammunitionConfig: Record<string, number>) {
     super(scene, config.x, config.y);
     this.config = { ...config };
+    
+    // Initialize ammunition from config
+    this.ammunition = new Map(Object.entries(ammunitionConfig));
 
     this.createTank();
     this.createHealthBar();
@@ -578,10 +574,17 @@ export class Tank extends Phaser.GameObjects.Container {
    * Apply damage to tank
    */
   public takeDamage(amount: number): void {
+    const previousHealth = this.config.health;
+    const stackTrace = new Error().stack;
     this.config.health = Math.max(0, this.config.health - amount);
     this.updateHealthBar();
 
+    // Log damage received with detailed info
+    console.log(`[Tank Damage] ${this.config.isPlayer ? 'Player' : 'Bot'} tank at (${Math.round(this.x)}, ${Math.round(this.y)}) received ${amount} damage. Health: ${previousHealth} → ${this.config.health}`);
+    console.log(`[Tank Damage Stack]`, stackTrace?.split('\n').slice(1, 4).join('\n'));
+
     if (this.config.health <= 0) {
+      console.log(`[Tank Destroyed] ${this.config.isPlayer ? 'Player' : 'Bot'} tank at (${Math.round(this.x)}, ${Math.round(this.y)}) was destroyed`);
       this.destroy();
     }
   }

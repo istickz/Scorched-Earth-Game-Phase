@@ -91,6 +91,13 @@ export type TimeOfDay = 'day' | 'night';
 export type Season = 'summer' | 'winter';
 
 /**
+ * Weapons configuration interface
+ */
+export interface IWeaponsConfig {
+  ammunition: Record<string, number>; // Map weapon type -> ammo count (-1 = infinite, 0 or missing = unavailable)
+}
+
+/**
  * Level configuration with modular system
  */
 export interface ILevelConfig {
@@ -103,6 +110,7 @@ export interface ILevelConfig {
   environmentEffects?: Partial<IEnvironmentEffects>; // Optional custom environment effects (overrides biome defaults, partial allows overriding only specific properties)
   terrainMinHeight?: number; // Optional minimum terrain height as percentage (0.0-1.0), defaults to 0.1 (10% of screen height)
   terrainMaxHeight?: number; // Optional maximum terrain height as percentage (0.0-1.0), defaults to 0.85 (85% of screen height)
+  weaponsConfig: IWeaponsConfig; // Weapons configuration for this level
 }
 
 /**
@@ -147,7 +155,7 @@ export interface IAIShotResult {
 /**
  * Network message types
  */
-export type NetworkMessageType = 'angle' | 'power' | 'fire' | 'ping' | 'pong';
+export type NetworkMessageType = 'angle' | 'power' | 'fire' | 'shield' | 'weaponChange' | 'ping' | 'pong' | 'levelConfig' | 'ready' | 'startGame' | 'levelSelected' | 'damage';
 
 /**
  * Network message interface
@@ -157,6 +165,21 @@ export interface INetworkMessage {
   data?: unknown;
   timestamp?: number;
   version?: string;
+}
+
+/**
+ * Damage message data interface
+ * Used for authority-based damage synchronization in multiplayer
+ */
+export interface IDamageMessage {
+  tankIndex: number;
+  damage: number;
+  explosionX: number;
+  explosionY: number;
+  explosionRadius: number;
+  messageId: string; // Unique ID to prevent duplicate messages
+  shieldDamage?: number; // Optional: damage absorbed by shield
+  shieldDestroyed?: boolean; // Optional: whether shield was destroyed
 }
 
 /**
