@@ -479,6 +479,17 @@ export class LobbyConnectionManager extends Phaser.Events.EventEmitter {
   }
 
   /**
+   * Re-establish message handler (useful when returning from GameScene)
+   * This ensures LobbyConnectionManager receives messages even if NetworkSync was active
+   */
+  public reestablishMessageHandler(): void {
+    console.log('LobbyConnectionManager: Re-establishing message handler');
+    this.webrtcManager.setOnMessage((message) => {
+      this.handleMessage(message);
+    });
+  }
+
+  /**
    * Get level config (for passing to GameScene)
    */
   public getLevelConfig(): ILevelConfig | undefined {
