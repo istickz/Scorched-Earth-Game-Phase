@@ -22,6 +22,7 @@ import { WeaponFactory } from '@/entities/weapons';
 import { WeaponType } from '@/types/weapons';
 import { type IFirePlan } from '@/types/weapons';
 import { DEFAULT_WEAPONS_CONFIG } from '@/config/weapons';
+import { type IDamageMessage } from '@/types';
 
 /**
  * Main game scene
@@ -38,6 +39,10 @@ export class GameScene extends Phaser.Scene {
   private lastShotData: Map<string, { angle: number; power: number; ownerId: string }> = new Map();
   private webrtcManager?: WebRTCManager;
   private networkSync?: NetworkSync;
+  // Track sent damage messages to prevent duplicates (host only)
+  private sentDamageMessages: Set<string> = new Set();
+  // Track processed explosions to prevent duplicate processing (especially on client)
+  private processedExplosions: Set<string> = new Set();
   private audioSystem!: AudioSystem;
   private environmentEffects!: IEnvironmentEffects;
   
@@ -88,6 +93,8 @@ export class GameScene extends Phaser.Scene {
     this.activeProjectiles = [];
     this.lastExplosionHit = null;
     this.lastShotData = new Map();
+    this.sentDamageMessages.clear();
+    this.processedExplosions.clear();
   }
 
   create(): void {
@@ -219,6 +226,9 @@ export class GameScene extends Phaser.Scene {
     this.setupInput();
     this.updateUI();
 
+    // Register explosion handler
+    // Always remove first to prevent duplicate registration (in case create() is called multiple times)
+    this.events.off('explosion', this.handleExplosion, this);
     this.events.on('explosion', this.handleExplosion, this);
   }
 
@@ -345,6 +355,10 @@ export class GameScene extends Phaser.Scene {
             this.updateUI();
           }
         }
+      },
+      onDamage: (damageData) => {
+        // Apply damage received from host (client only)
+        this.applyDamageFromNetwork(damageData);
       },
       onWeaponChange: (weaponType: string) => {
         // Обрабатываем сообщения только когда ход удаленного игрока
@@ -787,8 +801,32 @@ export class GameScene extends Phaser.Scene {
   }
 
   private handleExplosion(data: { x: number; y: number; radius: number; damage: number; ownerId?: string }): void {
+    // Create unique key for this explosion to prevent duplicate processing
+    const explosionKey = `${Math.round(data.x)}_${Math.round(data.y)}_${data.ownerId || 'unknown'}_${data.damage}`;
+    
+    // Prevent duplicate explosion processing (especially important on client)
+    if (this.processedExplosions.has(explosionKey)) {
+      console.log(`[Explosion Handler] Ignoring duplicate explosion at (${Math.round(data.x)}, ${Math.round(data.y)}), ownerId: ${data.ownerId}`);
+      return;
+    }
+    
+    // Mark this explosion as processed
+    this.processedExplosions.add(explosionKey);
+    
+    // Clean up old explosion keys (keep only last 100 to prevent memory leak)
+    if (this.processedExplosions.size > 100) {
+      const keysArray = Array.from(this.processedExplosions);
+      this.processedExplosions.clear();
+      // Keep last 50 keys
+      keysArray.slice(-50).forEach(key => this.processedExplosions.add(key));
+    }
+    
+    console.log(`[Explosion Handler] Processing explosion at (${Math.round(data.x)}, ${Math.round(data.y)}) with damage ${data.damage}, ownerId: ${data.ownerId}, gameMode: ${this.gameMode}, isHost: ${this.isHost}`);
     this.lastExplosionHit = { x: data.x, y: data.y };
 
+    // Visual effects (particles, terrain destruction) - both host and client
+    // Damage processing - only on host (authority-based)
+    
     // Сохраняем позиции танков ДО нанесения урона (на случай если они будут уничтожены)
     const tankPositions = new Map<Tank, { x: number; y: number; isAlive: boolean }>();
     this.tanks.forEach((tank) => {
@@ -797,8 +835,10 @@ export class GameScene extends Phaser.Scene {
       }
     });
 
-    // Наносим урон танкам (используем сохраненные позиции для безопасности)
-    this.tanks.forEach((tank) => {
+    // Process damage only on host (authority-based)
+    if (this.isHost && this.gameMode === GameMode.Multiplayer) {
+      // Наносим урон танкам на хосте и отправляем сообщения клиенту
+      this.tanks.forEach((tank, tankIndex) => {
       if (!tank.isAlive()) {
         return;
       }
@@ -814,14 +854,29 @@ export class GameScene extends Phaser.Scene {
       // Используем сохраненную позицию вместо tank.x/tank.y (танк может быть уничтожен)
       const distance = Phaser.Math.Distance.Between(data.x, data.y, tankPos.x, tankPos.y);
       if (distance <= effectiveRadius) {
-        const damage = this.explosionSystem.calculateDamage(
+        const calculatedDamage = this.explosionSystem.calculateDamage(
           Math.max(0, distance - tankHitboxRadius),
           data.radius, 
           data.damage
         );
+        const damage = calculatedDamage;
         
         // Проверяем еще раз перед нанесением урона
         if (tank.isAlive()) {
+          // Generate unique message ID to prevent duplicates
+          // Use explosion coordinates, tank index, and timestamp for uniqueness
+          const messageId = `${Math.round(data.x)}_${Math.round(data.y)}_${tankIndex}_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+          
+          // Check if we already sent this damage message (prevent duplicates)
+          if (this.sentDamageMessages.has(messageId)) {
+            console.log(`[Damage Sync] Skipping duplicate damage message: ${messageId}`);
+            return;
+          }
+          
+          let finalDamage = damage;
+          let shieldDamage = 0;
+          let shieldDestroyed = false;
+          
           // Check if tank has active shield
           const activeShield = tank.getActiveShield();
           if (activeShield && activeShield.isActive()) {
@@ -832,14 +887,20 @@ export class GameScene extends Phaser.Scene {
             
             if (distanceToTank <= shieldRadius) {
               // Shield absorbs damage
+              const shieldHPBefore = activeShield.getCurrentHP();
               const remainingDamage = activeShield.takeDamage(damage);
+              shieldDamage = damage - remainingDamage;
+              shieldDestroyed = shieldHPBefore > 0 && activeShield.getCurrentHP() === 0;
               
               // Apply remaining damage to tank (if shield was destroyed)
               if (remainingDamage > 0) {
                 tank.takeDamage(remainingDamage);
+                finalDamage = remainingDamage;
                 if (!tank.isAlive()) {
                   tankPos.isAlive = false;
                 }
+              } else {
+                finalDamage = 0; // All damage absorbed by shield
               }
             } else {
               // Explosion outside shield radius, damage goes directly to tank
@@ -856,9 +917,89 @@ export class GameScene extends Phaser.Scene {
               tankPos.isAlive = false;
             }
           }
+          
+          // Send damage message to client (only if damage was applied)
+          if (finalDamage > 0 || shieldDamage > 0) {
+            this.sentDamageMessages.add(messageId);
+            
+            // Clean up old message IDs (keep last 100)
+            if (this.sentDamageMessages.size > 100) {
+              const keysArray = Array.from(this.sentDamageMessages);
+              this.sentDamageMessages.clear();
+              keysArray.slice(-50).forEach(key => this.sentDamageMessages.add(key));
+            }
+            
+            if (this.networkSync) {
+              this.networkSync.sendDamage({
+                tankIndex,
+                damage: finalDamage,
+                explosionX: data.x,
+                explosionY: data.y,
+                explosionRadius: data.radius,
+                messageId,
+                shieldDamage: shieldDamage > 0 ? shieldDamage : undefined,
+                shieldDestroyed: shieldDestroyed ? true : undefined,
+              });
+            }
+          }
         }
       }
     });
+    } else if (this.gameMode === GameMode.Solo) {
+      // Solo mode: process damage locally (no network sync needed)
+      this.tanks.forEach((tank) => {
+        if (!tank.isAlive()) {
+          return;
+        }
+
+        const tankPos = tankPositions.get(tank);
+        if (!tankPos || !tankPos.isAlive) {
+          return;
+        }
+
+        const tankHitboxRadius = 35;
+        const effectiveRadius = data.radius + tankHitboxRadius;
+        const distance = Phaser.Math.Distance.Between(data.x, data.y, tankPos.x, tankPos.y);
+        
+        if (distance <= effectiveRadius) {
+          const damage = this.explosionSystem.calculateDamage(
+            Math.max(0, distance - tankHitboxRadius),
+            data.radius, 
+            data.damage
+          );
+          
+          if (tank.isAlive()) {
+            const activeShield = tank.getActiveShield();
+            if (activeShield && activeShield.isActive()) {
+              const shieldConfig = activeShield.getShieldConfig();
+              const shieldRadius = shieldConfig.radius;
+              const distanceToTank = Phaser.Math.Distance.Between(data.x, data.y, tankPos.x, tankPos.y);
+              
+              if (distanceToTank <= shieldRadius) {
+                const remainingDamage = activeShield.takeDamage(damage);
+                if (remainingDamage > 0) {
+                  tank.takeDamage(remainingDamage);
+                  if (!tank.isAlive()) {
+                    tankPos.isAlive = false;
+                  }
+                }
+              } else {
+                tank.takeDamage(damage);
+                if (!tank.isAlive()) {
+                  tankPos.isAlive = false;
+                }
+              }
+            } else {
+              tank.takeDamage(damage);
+              if (!tank.isAlive()) {
+                tankPos.isAlive = false;
+              }
+            }
+          }
+        }
+      });
+    }
+    // Client in multiplayer: damage will be applied via applyDamageFromNetwork()
 
     // Записываем результат выстрела для AI (используем сохраненные позиции)
     if (this.gameMode === GameMode.Solo && this.aiSystem && this.lastExplosionHit && data.ownerId === 'tank-1') {
@@ -893,6 +1034,37 @@ export class GameScene extends Phaser.Scene {
     // Schedule turn switch if waiting for projectile and explosion happened
     // Only check once, not for every explosion (prevents multiple turn switches)
     // This check is now handled in update() loop after all collisions are processed
+  }
+
+  /**
+   * Apply damage received from host (client only)
+   */
+  private applyDamageFromNetwork(damageData: IDamageMessage): void {
+    if (this.gameMode !== GameMode.Multiplayer || this.isHost) {
+      // Only apply on client in multiplayer mode
+      return;
+    }
+
+    const tank = this.tanks[damageData.tankIndex];
+    if (!tank || !tank.isAlive()) {
+      return;
+    }
+
+    console.log(`[Damage Sync] Applying damage from host: tank ${damageData.tankIndex}, damage ${damageData.damage}, shieldDamage ${damageData.shieldDamage || 0}`);
+
+    // Apply shield damage if specified
+    if (damageData.shieldDamage && damageData.shieldDamage > 0) {
+      const activeShield = tank.getActiveShield();
+      if (activeShield && activeShield.isActive()) {
+        // Apply shield damage (shield will handle destruction internally)
+        activeShield.takeDamage(damageData.shieldDamage);
+      }
+    }
+
+    // Apply tank damage if specified
+    if (damageData.damage > 0) {
+      tank.takeDamage(damageData.damage);
+    }
   }
 
 
@@ -993,6 +1165,7 @@ export class GameScene extends Phaser.Scene {
         }
       } else if (hitType === 'tank') {
         // Tank hit - always explode
+        console.log(`[Tank Hit] Projectile from ${projectile.getOwnerId()} hit tank at (${Math.round(hitPoint.x)}, ${Math.round(hitPoint.y)}), gameMode: ${this.gameMode}, isHost: ${this.isHost}`);
         this.trajectorySystem.saveTrajectory(projectile, hitPoint);
         
         const weaponType = projectile.getWeaponType() || WeaponType.STANDARD;

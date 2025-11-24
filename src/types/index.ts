@@ -155,7 +155,7 @@ export interface IAIShotResult {
 /**
  * Network message types
  */
-export type NetworkMessageType = 'angle' | 'power' | 'fire' | 'shield' | 'weaponChange' | 'ping' | 'pong' | 'levelConfig' | 'ready' | 'startGame' | 'levelSelected';
+export type NetworkMessageType = 'angle' | 'power' | 'fire' | 'shield' | 'weaponChange' | 'ping' | 'pong' | 'levelConfig' | 'ready' | 'startGame' | 'levelSelected' | 'damage';
 
 /**
  * Network message interface
@@ -165,6 +165,21 @@ export interface INetworkMessage {
   data?: unknown;
   timestamp?: number;
   version?: string;
+}
+
+/**
+ * Damage message data interface
+ * Used for authority-based damage synchronization in multiplayer
+ */
+export interface IDamageMessage {
+  tankIndex: number;
+  damage: number;
+  explosionX: number;
+  explosionY: number;
+  explosionRadius: number;
+  messageId: string; // Unique ID to prevent duplicate messages
+  shieldDamage?: number; // Optional: damage absorbed by shield
+  shieldDestroyed?: boolean; // Optional: whether shield was destroyed
 }
 
 /**

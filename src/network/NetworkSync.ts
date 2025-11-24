@@ -1,4 +1,4 @@
-import { type INetworkMessage } from '@/types';
+import { type INetworkMessage, type IDamageMessage } from '@/types';
 import { WebRTCManager } from './WebRTCManager';
 
 /**
@@ -11,6 +11,7 @@ export class NetworkSync {
   private onFire?: (angle: number, power: number, weaponType: string) => void;
   private onShield?: (shieldType: string) => void;
   private onWeaponChange?: (weaponType: string) => void;
+  private onDamage?: (damageData: IDamageMessage) => void;
   private lastSentAngle: number | null = null;
   private lastSentPower: number | null = null;
 
@@ -32,12 +33,14 @@ export class NetworkSync {
     onFire?: (angle: number, power: number, weaponType: string) => void;
     onShield?: (shieldType: string) => void;
     onWeaponChange?: (weaponType: string) => void;
+    onDamage?: (damageData: IDamageMessage) => void;
   }): void {
     this.onAngleChange = callbacks.onAngleChange;
     this.onPowerChange = callbacks.onPowerChange;
     this.onFire = callbacks.onFire;
     this.onShield = callbacks.onShield;
     this.onWeaponChange = callbacks.onWeaponChange;
+    this.onDamage = callbacks.onDamage;
   }
 
   /**
@@ -101,6 +104,16 @@ export class NetworkSync {
   }
 
   /**
+   * Send damage message to remote player (host only)
+   */
+  public sendDamage(damageData: IDamageMessage): void {
+    this.webrtcManager.sendMessage({
+      type: 'damage',
+      data: damageData,
+    });
+  }
+
+  /**
    * Handle incoming network message
    */
   private handleMessage(message: INetworkMessage): void {
@@ -140,6 +153,12 @@ export class NetworkSync {
       case 'weaponChange':
         if (this.onWeaponChange && typeof message.data === 'object' && 'weaponType' in message.data) {
           this.onWeaponChange(message.data.weaponType as string);
+        }
+        break;
+
+      case 'damage':
+        if (this.onDamage && typeof message.data === 'object' && 'tankIndex' in message.data && 'damage' in message.data) {
+          this.onDamage(message.data as IDamageMessage);
         }
         break;
 

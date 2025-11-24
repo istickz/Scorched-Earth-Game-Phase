@@ -574,10 +574,17 @@ export class Tank extends Phaser.GameObjects.Container {
    * Apply damage to tank
    */
   public takeDamage(amount: number): void {
+    const previousHealth = this.config.health;
+    const stackTrace = new Error().stack;
     this.config.health = Math.max(0, this.config.health - amount);
     this.updateHealthBar();
 
+    // Log damage received with detailed info
+    console.log(`[Tank Damage] ${this.config.isPlayer ? 'Player' : 'Bot'} tank at (${Math.round(this.x)}, ${Math.round(this.y)}) received ${amount} damage. Health: ${previousHealth} → ${this.config.health}`);
+    console.log(`[Tank Damage Stack]`, stackTrace?.split('\n').slice(1, 4).join('\n'));
+
     if (this.config.health <= 0) {
+      console.log(`[Tank Destroyed] ${this.config.isPlayer ? 'Player' : 'Bot'} tank at (${Math.round(this.x)}, ${Math.round(this.y)}) was destroyed`);
       this.destroy();
     }
   }
